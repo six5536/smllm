@@ -1129,7 +1129,7 @@ checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
 
 [[package]]
 name = "smllm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "agent-harness-adapter-core",
  "assert_cmd",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "smllm-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "proptest",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "smllm-format"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "agent-harness-adapter-core",
  "insta",
@@ -1179,11 +1179,11 @@ dependencies = [
 
 [[package]]
 name = "smllm-json"
-version = "0.4.0"
+version = "0.4.1"
 
 [[package]]
 name = "smllm-wasm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "smllm-core",
  "smllm-json",

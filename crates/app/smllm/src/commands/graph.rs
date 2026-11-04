@@ -1,5 +1,4 @@
-//! `smllm graph`: states and transitions, guards shown (CLI-10).
-// @zen-component: CLI-Graph
+//! `smllm graph`: states and transitions, guards shown (CLI-8).
 
 use std::path::Path;
 
@@ -122,7 +121,7 @@ fn to_json(m: &Machine) -> Value {
 }
 
 /// `smllm graph [ID] [--json|--mermaid]`.
-// @zen-impl: CLI-10_AC-1
+// sokf-implements: CLI-8_AC-1
 pub fn graph(args: &GraphArgs, explicit: Option<&Path>) -> Result<u8> {
     let cwd = paths::cwd()?;
     let rt = Runtime::lookup(explicit, &cwd)?;

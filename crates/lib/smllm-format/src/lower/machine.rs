@@ -1,5 +1,4 @@
 //! Validate a parsed machine file and lower it to the core model (CFG).
-// @zen-component: CFG-Lower
 
 use std::collections::{HashMap, HashSet};
 
@@ -8,20 +7,20 @@ use smllm_core::model::{ActionDef, Machine, On, Position, SharedAction, State, T
 
 use crate::finding::Severity;
 use crate::lower::actions::{Files, check_fences, default_prompt, lower_actions, lower_guard};
-use crate::lower::checker::Checker;
+use crate::lower::checker::{Checker, YPath};
 use crate::lower::events::{is_name, lower_events, lower_instance, require_ref};
 use crate::source::{MachineFile, PositionSrc, StateType, StringOr, Transitions};
 use crate::ypath;
 
 /// Lower `file`; `None` when there are errors.
-// @zen-impl: CFG-1_AC-1
+// sokf-implements: FMT-1_AC-1
 pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) -> Option<Machine> {
     if file.meta.smllm != 1 {
         c.error(
             &ypath!["meta", "smllm"],
             format!("unsupported smllm format version {}", file.meta.smllm),
             Some("set meta.smllm: 1, the only version that this smllm reads"),
-            "CFG-1",
+            "FMT-1",
         );
     }
     if !is_name(&file.id) {
@@ -32,7 +31,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 file.id
             ),
             None,
-            "CFG-1",
+            "FMT-1",
         );
     }
     if let Some(d) = &file.description {
@@ -44,7 +43,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
             &ypath!["states"],
             "a state machine needs at least one state".to_string(),
             None,
-            "CFG-1",
+            "FMT-1",
         );
     }
     if !names.contains(&file.initial.as_str()) {
@@ -52,7 +51,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
             &ypath!["initial"],
             format!("initial state {} does not exist", file.initial),
             None,
-            "CFG-3",
+            "AGT-5",
         );
     }
     let instance = lower_instance(c, file.meta.instance.as_ref());
@@ -62,27 +61,28 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
     let mut used_events = HashSet::new();
     let mut set_ref_events = Vec::new();
     let mut fallbacks = Vec::new();
+    let states_p = YPath::ROOT.key("states");
     for (name, node) in file.states.iter() {
-        let sp = ypath!["states", name];
+        let sp = states_p.key(name);
         if name.is_empty() || name.chars().any(char::is_whitespace) {
             c.error(
                 &sp,
                 format!("state name {name:?} must not be empty or contain spaces"),
                 None,
-                "CFG-1",
+                "FMT-1",
             );
         }
         let meta = node.meta.clone().unwrap_or_default();
         let is_final = node.kind == Some(StateType::Final);
         if let Some(d) = &node.description {
-            check_fences(c, &[sp.clone(), ypath!["description"]].concat(), d);
+            check_fences(c, &sp.key("description"), d);
         }
         if is_final && (node.on.is_some() || node.always.is_some()) {
             c.error(
                 &sp,
                 "a final state cannot have on or always".to_string(),
                 None,
-                "CFG-12",
+                "FMT-2",
             );
         }
         if is_final && meta.entry_point {
@@ -90,7 +90,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 &sp,
                 "a final state that is an entry point completes the instance as soon as it is entered".to_string(),
                 Some("remove meta.entryPoint, or make the state non-final"),
-                "CFG-12",
+                "FMT-2",
             );
         }
         if meta.fallback {
@@ -100,38 +100,27 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                     &sp,
                     "the fallback state cannot be final".to_string(),
                     None,
-                    "CFG-13",
+                    "FMT-2",
                 );
             }
         }
-        let mut entry = lower_actions(
-            c,
-            files,
-            &[sp.clone(), ypath!["entry"]].concat(),
-            node.entry.as_ref(),
-            false,
-        );
+        let mut entry = lower_actions(c, files, &sp.key("entry"), node.entry.as_ref(), false);
         if !entry.iter().any(|a| matches!(a, ActionDef::Prompt(_))) {
             entry.extend(default_prompt(c, files, &sp, name));
         }
-        let exit = lower_actions(
-            c,
-            files,
-            &[sp.clone(), ypath!["exit"]].concat(),
-            node.exit.as_ref(),
-            false,
-        );
+        let exit = lower_actions(c, files, &sp.key("exit"), node.exit.as_ref(), false);
 
         let mut on = Vec::new();
         if let Some(src) = &node.on {
+            let on_p = sp.key("on");
             for (event, ts) in src.iter() {
-                let ep = [sp.clone(), ypath!["on", event]].concat();
+                let ep = on_p.key(event);
                 if !is_name(event) {
                     c.error(
                         &ep,
                         format!("event name {event:?} must contain only letters, digits, _, and -"),
                         None,
-                        "CFG-7",
+                        "FMT-4",
                     );
                     continue;
                 }
@@ -142,7 +131,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                             "{event} is a built-in event, so a state cannot handle it under on"
                         ),
                         None,
-                        "CFG-13",
+                        "FMT-2",
                     );
                     continue;
                 }
@@ -158,14 +147,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
             }
         }
         let always = match &node.always {
-            Some(ts) => lower_transitions(
-                c,
-                files,
-                &[sp.clone(), ypath!["always"]].concat(),
-                ts,
-                &names,
-                false,
-            ),
+            Some(ts) => lower_transitions(c, files, &sp.key("always"), ts, &names, false),
             None => Vec::new(),
         };
         if !always.is_empty() && !on.is_empty() {
@@ -173,22 +155,24 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 &sp,
                 "smllm leaves a state with always at once, so it never offers the state's on events".to_string(),
                 None,
-                "DEC-2",
+                "AGT-5",
             );
         }
 
-        // Per-state prompts reword declared params, never define them (CFG-8).
-        // @zen-impl: CFG-8_AC-1
+        // Per-state prompts reword declared params, never define them (FMT-4).
+        // sokf-implements: FMT-4_AC-3
         let mut param_descriptions = smllm_core::SmallMap::new();
         if let Some(pd) = &meta.param_descriptions {
+            let meta_p = sp.key("meta");
+            let pd_p = meta_p.key("paramDescriptions");
             for (event, prompts) in pd.iter() {
-                let pp = [sp.clone(), ypath!["meta", "paramDescriptions", event]].concat();
+                let pp = pd_p.key(event);
                 if !on.iter().any(|o| o.event == event) {
                     c.warning(
                         &pp,
                         format!("{name} has no transition on {event}, so smllm never shows these descriptions"),
                         None,
-                        "CFG-8",
+                        "FMT-4",
                     );
                 }
                 let mut m = smllm_core::SmallMap::new();
@@ -201,13 +185,13 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                         || (param == instance.ref_param && event_sets_ref);
                     if !declared {
                         c.error(
-                            &[pp.clone(), ypath![param]].concat(),
+                            &pp.key(param),
                             format!("{event} declares no param {param}"),
                             Some("declare params in meta.events; paramDescriptions can only reword their prompts"),
-                            "CFG-8",
+                            "FMT-4",
                         );
                     }
-                    check_fences(c, &[pp.clone(), ypath![param]].concat(), text);
+                    check_fences(c, &pp.key(param), text);
                     m.insert(param, text.clone());
                 }
                 param_descriptions.insert(event, m);
@@ -235,20 +219,22 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 fallbacks[0]
             ),
             None,
-            "CFG-13",
+            "FMT-2",
         );
     }
 
     let mut shared = Vec::new();
+    let meta_p = YPath::ROOT.key("meta");
+    let shared_p = meta_p.key("sharedActions");
     for (i, sa) in file.meta.shared_actions.iter().flatten().enumerate() {
-        let p = ypath!["meta", "sharedActions", format!("[{i}]")];
+        let p = shared_p.index(i);
         for s in &sa.states {
             if !names.contains(&s.as_str()) {
                 c.error(
                     &p,
                     format!("sharedActions lists unknown state {s}"),
                     None,
-                    "CFG-11",
+                    "AGT-6",
                 );
             }
         }
@@ -258,20 +244,8 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 PositionSrc::Before => Position::Before,
                 PositionSrc::After => Position::After,
             },
-            entry: lower_actions(
-                c,
-                files,
-                &[p.clone(), ypath!["entry"]].concat(),
-                sa.entry.as_ref(),
-                false,
-            ),
-            exit: lower_actions(
-                c,
-                files,
-                &[p.clone(), ypath!["exit"]].concat(),
-                sa.exit.as_ref(),
-                false,
-            ),
+            entry: lower_actions(c, files, &p.key("entry"), sa.entry.as_ref(), false),
+            exit: lower_actions(c, files, &p.key("exit"), sa.exit.as_ref(), false),
         });
     }
 
@@ -284,7 +258,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                 &ypath!["meta", "events", name],
                 format!("event {name} is declared but no state uses it"),
                 None,
-                "CFG-9",
+                "FMT-4",
             );
         }
     }
@@ -300,7 +274,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                     instance.ref_param
                 ),
                 Some("rename the param, or add a setRef action"),
-                "CFG-13",
+                "FMT-2",
             );
         }
     }
@@ -323,12 +297,12 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
 }
 
 /// Lower `on.<event>` or `always`: targets exist; the last candidate has no
-/// guard (CFG-13).
-// @zen-impl: CFG-13_AC-1
+/// guard (FMT-2).
+// sokf-implements: FMT-2_AC-2
 fn lower_transitions(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     src: &Transitions,
     states: &[&str],
     set_ref_ok: bool,
@@ -336,10 +310,8 @@ fn lower_transitions(
     let many = src.0.len() > 1;
     let mut out = Vec::new();
     for (i, t) in src.0.iter().enumerate() {
-        let mut p = path.to_vec();
-        if many {
-            p.push(format!("[{i}]"));
-        }
+        let item = path.index(i);
+        let p = if many { &item } else { path };
         let lowered = match t {
             StringOr::Str(target) => Transition {
                 target: Some(target.clone()),
@@ -347,16 +319,11 @@ fn lower_transitions(
             },
             StringOr::Obj(o) => Transition {
                 target: o.target.clone(),
-                guard: o.guard.as_ref().and_then(|g| {
-                    lower_guard(c, files, &[p.clone(), ypath!["guard"]].concat(), g, states)
-                }),
-                actions: lower_actions(
-                    c,
-                    files,
-                    &[p.clone(), ypath!["actions"]].concat(),
-                    o.actions.as_ref(),
-                    set_ref_ok,
-                ),
+                guard: o
+                    .guard
+                    .as_ref()
+                    .and_then(|g| lower_guard(c, files, &p.key("guard"), g, states)),
+                actions: lower_actions(c, files, &p.key("actions"), o.actions.as_ref(), set_ref_ok),
                 reenter: o.reenter.unwrap_or(false),
                 description: o.description.clone(),
             },
@@ -365,37 +332,35 @@ fn lower_transitions(
             && !states.contains(&tg.as_str())
         {
             c.error(
-                &p,
+                p,
                 format!("target state {tg} does not exist"),
                 None,
-                "CFG-3",
+                "AGT-5",
             );
         }
         if let Some(d) = &lowered.description {
-            check_fences(c, &p, d);
+            check_fences(c, p, d);
         }
         if lowered.reenter && lowered.target.is_none() {
             c.warning(
-                &p,
+                p,
                 "reenter has no effect without a target, because a transition without one never re-enters"
                     .to_string(),
                 Some("to re-enter it, add target: <this state>"),
-                "CFG-3",
+                "AGT-5",
             );
         }
         out.push(lowered);
     }
     if out.last().is_some_and(|t| t.guard.is_some()) {
-        let mut p = path.to_vec();
-        if many {
-            p.push(format!("[{}]", out.len() - 1));
-        }
+        let item = path.index(out.len() - 1);
+        let p = if many { &item } else { path };
         c.error(
-            &p,
+            p,
             "the last transition has a guard, so nothing happens when every guard fails"
                 .to_string(),
             Some("end the list with a transition without a guard, such as one back to this state"),
-            "CFG-13",
+            "FMT-2",
         );
     }
     out

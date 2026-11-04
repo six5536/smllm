@@ -30,4 +30,6 @@ npm run build:wasm
 
 `npm run build:all` builds the four Linux and macOS binaries. The release builds the Windows binary on Windows. `npm run build:wasm` installs the nightly toolchain that `scripts/build-wasm.mjs` pins. It also needs `wasm-bindgen` at the version of the `wasm-bindgen` crate in `Cargo.lock`.
 
+Check a patch with `cargo clippy --workspace --all-targets -- -D warnings`. `clippy.toml` bans the code that makes the WebAssembly package larger, such as the standard library's sorts and `BTreeMap`, in the crates that the package links: `smllm-core`, `smllm-json`, and `smllm-wasm`. The reason for each ban says what to use instead.
+
 The release workflow is `.github/workflows/publish.yml`. It builds the five binaries and the WebAssembly package, smoke-tests the binaries, publishes the crates and the packages, and creates the GitHub release with the notes from the tag's message. The GitHub releases hold the notes of every release, and they are the project's changelog.

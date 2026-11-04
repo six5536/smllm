@@ -1,6 +1,5 @@
 //! Read machine files and `config.toml`s; combine user + project configs
 //! (CLI config lookup, D26).
-// @zen-component: CFG-Load
 
 use std::path::{Path, PathBuf};
 
@@ -55,7 +54,7 @@ pub struct MachineSource {
     /// The config that lists it.
     pub config: PathBuf,
     /// Its instances: that config's `[state] dir`, default `state/` beside
-    /// it (STO-1).
+    /// it (STORE-1).
     pub state_dir: PathBuf,
 }
 
@@ -70,7 +69,7 @@ pub struct Loaded {
     pub findings: Findings,
     /// Every file the load read or checked, found or not: the configs, their
     /// machine files and the prompt files those name. The load is stale when
-    /// any of them changes (the MCP server's cache, HOST-16).
+    /// any of them changes (the MCP server's cache, MCP-1).
     pub inputs: Vec<PathBuf>,
 }
 
@@ -105,7 +104,7 @@ struct MachinesToml {
 }
 
 /// `[state] dir`: where this file's machines keep their instances,
-/// relative to the file (or absolute); default `state` (STO-1).
+/// relative to the file (or absolute); default `state` (STORE-1).
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct StateToml {
@@ -148,7 +147,7 @@ fn finding(
 }
 
 /// Parse and lower one machine file.
-// @zen-impl: CFG-14_AC-1
+// sokf-implements: FMT-6_AC-1
 pub fn load_machine(path: &Path, mode: Mode) -> (Option<Machine>, Findings) {
     let (machine, findings, _) = load_machine_inputs(path, mode, "");
     (machine, findings)
@@ -170,13 +169,17 @@ fn load_machine_inputs(
                 path,
                 None,
                 format!("cannot read: {e}"),
-                "CFG-14",
+                "FMT-6",
             ));
             return (None, findings, Vec::new());
         }
     };
     // YAML syntax first (one finding: the document cannot be read further).
-    let mut doc: serde_json::Value = match serde_saphyr::from_str(&text) {
+    // The parser still checks the comments, but keeps no copy of their text,
+    // because no part of a machine reads them.
+    let mut options = serde_saphyr::options::Options::default();
+    options.emit_comments = false;
+    let mut doc: serde_json::Value = match serde_saphyr::from_str_with_options(&text, options) {
         Ok(v) => v,
         Err(e) => {
             let line = e.location().map(|l| l.line() as usize).filter(|l| *l > 0);
@@ -185,12 +188,12 @@ fn load_machine_inputs(
                 path,
                 line,
                 parse_message(&e.to_string()),
-                "CFG-1",
+                "FMT-1",
             ));
             return (None, findings, Vec::new());
         }
     };
-    // Then the whole shape, every problem at once (CFG-14).
+    // Then the whole shape, every problem at once (FMT-6).
     let mut shape = Checker::new(path, &text);
     crate::shape::check(&mut shape, &doc);
     if shape.findings.has_errors() {
@@ -202,7 +205,7 @@ fn load_machine_inputs(
         Ok(m) => m,
         Err(e) => {
             // The shape check should have caught it; report what serde says.
-            findings.push(finding(Severity::Error, path, None, e.to_string(), "CFG-1"));
+            findings.push(finding(Severity::Error, path, None, e.to_string(), "FMT-1"));
             return (None, findings, Vec::new());
         }
     };
@@ -234,7 +237,7 @@ fn parse_message(full: &str) -> String {
 
 /// Load and combine config files, in order: user then project; the project
 /// wins on a machine id clash, and its `[idle]` replaces the user's (D26).
-// @zen-impl: CFG-15_AC-2
+// sokf-implements: FMT-5_AC-1
 pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
     let mut out = Loaded::default();
     let mut idle: Option<Vec<ActionDef>> = None;
@@ -276,7 +279,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                             "smllm does not load machines {} from earlier configs while this file has errors, because it might replace them",
                             ids.join(", ")
                         ),
-                        "CFG-15",
+                        "FMT-7",
                     ));
                 }
                 continue;
@@ -289,7 +292,8 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                 Some(p) => {
                     let mut c = Checker::new(&cf.path, &text);
                     let files = Files::new(dir, mode);
-                    let at = ["idle".to_string(), "on-enter".to_string()];
+                    let idle_p = crate::lower::YPath::ROOT.key("idle");
+                    let at = idle_p.key("on-enter");
                     let prompt =
                         lower_prompt(&mut c, &files, &at, p.text.as_deref(), p.file.as_deref());
                     out.findings.extend(c.findings);
@@ -319,7 +323,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                     &cf.path,
                     None,
                     format!("two machines in this config have id {}", machine.id),
-                    "CFG-1",
+                    "FMT-1",
                 ));
                 continue;
             }
@@ -338,7 +342,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                         "machine id {} differs from {other} only in case, so they would share a state directory on macOS and Windows",
                         machine.id
                     ),
-                    "CFG-1",
+                    "FMT-1",
                 ));
                 continue;
             }
@@ -359,7 +363,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                         machine.id,
                         out.machines[i].file.display()
                     ),
-                    "CFG-15",
+                    "FMT-7",
                 ));
                 // Replaced in place: config order is kept.
                 out.machines[i] = source;
@@ -376,7 +380,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
 
 /// A machine file that failed to load may be meant to replace a machine an
 /// earlier config gave: that one is not used in its place, so its id stays
-/// unconfigured (and sessions holding it wait, INST-7) until the file is
+/// unconfigured (and sessions holding it wait, AGT-10) until the file is
 /// fixed. The id is read from the file's top-level `id:` line.
 fn withdraw_replaced(out: &mut Loaded, file: &Path, config: &Path) {
     let Some(id) = declared_id(file) else { return };
@@ -397,7 +401,7 @@ fn withdraw_replaced(out: &mut Loaded, file: &Path, config: &Path) {
             "smllm does not use machine {id} in {} while this file, which replaces it, has errors",
             earlier.file.display()
         ),
-        "CFG-15",
+        "FMT-7",
     ));
 }
 

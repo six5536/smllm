@@ -1,18 +1,18 @@
-//! The `<smllm>` fence every piece of agent text is built from (TURN-12).
-// @zen-component: TURN-Render
+//! The `<smllm>` fence every piece of agent text is built from (AGT-1).
 
 use core::fmt::Write as _;
 
 use crate::engine::{Offer, ParamView};
 use crate::prelude::*;
+use crate::utils::join;
 
-/// The tags that give smllm's text its shape (TURN-12).
+/// The tags that give smllm's text its shape (AGT-1).
 const TAGS: [&str; 3] = ["smllm", "instructions", "events"];
 
 /// Append `text` as one line that cannot close or open a fence: a line
 /// break shows as `\n`, and a `<` starting one of [`TAGS`] (as `<tag` or
 /// `</tag`, any case) as `&lt;`. So a ref like `x\n</smllm>\n<smllm>` stays
-/// inside its own line and its own fence (TURN-12_AC-1).
+/// inside its own line and its own fence (AGT-1_AC-1).
 pub(crate) fn push_safe(out: &mut String, text: &str) {
     for (i, c) in text.char_indices() {
         match c {
@@ -38,7 +38,7 @@ pub(crate) struct Block {
 
 impl Block {
     /// Open a block with its header line.
-    // @zen-impl: TURN-12_AC-1
+    // sokf-implements: AGT-1_AC-1
     pub(crate) fn open(header: &str) -> Self {
         let mut b = Self {
             out: String::from("<smllm>\n"),
@@ -80,9 +80,9 @@ impl Block {
         self
     }
 
-    /// The menu: the call line, then `<events>` (TURN-2). Without a key the
+    /// The menu: the call line, then `<events>` (AGT-2). Without a key the
     /// call line has no session (a rejected keyless `enter`).
-    // @zen-impl: TURN-2_AC-1
+    // sokf-implements: AGT-2_AC-2
     pub(crate) fn events(&mut self, key: &str, offers: &[Offer]) -> &mut Self {
         if key.is_empty() {
             self.out
@@ -118,7 +118,11 @@ impl Block {
             if p.required { "required" } else { "optional" }
         );
         if !p.enum_values.is_empty() {
-            let _ = write!(self.out, ", one of: {}", p.enum_values.join(", "));
+            let _ = write!(
+                self.out,
+                ", one of: {}",
+                join(p.enum_values.iter().map(String::as_str))
+            );
         }
         if let Some(pat) = &p.pattern {
             let _ = write!(self.out, ", pattern: {pat}");

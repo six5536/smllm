@@ -1,5 +1,4 @@
-//! `fire`, `session list|show`, `instance list|show` (CLI-4..6).
-// @zen-component: CLI-Commands
+//! `fire`, `session list|show`, `instance list|show` (CLI-5..6).
 
 use std::path::Path;
 
@@ -25,8 +24,8 @@ fn params(raw: &[String]) -> Result<Vec<(String, String)>> {
         .collect()
 }
 
-/// `smllm fire` (CLI-4, HOST-5).
-// @zen-impl: CLI-4_AC-1
+/// `smllm fire` (CLI-5, MCP-1).
+// sokf-implements: CLI-5_AC-1
 pub fn fire(args: &FireArgs, explicit: Option<&Path>) -> Result<u8> {
     let ps = params(&args.params)?;
     let cwd = paths::cwd()?;
@@ -38,7 +37,7 @@ pub fn fire(args: &FireArgs, explicit: Option<&Path>) -> Result<u8> {
 }
 
 /// `smllm session list`.
-// @zen-impl: CLI-5_AC-1
+// sokf-implements: CLI-6_AC-1
 pub fn session_list(args: &JsonArgs) -> Result<u8> {
     let store = FsStore::user()?;
     let sessions = store.sessions()?;
@@ -75,8 +74,8 @@ pub fn session_show(args: &KeyArgs) -> Result<u8> {
     Ok(EXIT_OK)
 }
 
-/// `smllm instance list` (CLI-6).
-// @zen-impl: CLI-6_AC-1
+/// `smllm instance list` (CLI-7).
+// sokf-implements: CLI-7_AC-1
 pub fn instance_list(args: &JsonArgs, explicit: Option<&Path>) -> Result<u8> {
     let cwd = paths::cwd()?;
     let all = Runtime::lookup(explicit, &cwd)?.all_instances()?;

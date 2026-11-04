@@ -1,0 +1,22 @@
+# Code that bloats the wasm engine for little use, banned in the crates the
+# wasm build links: smllm-core, smllm-json and smllm-wasm. The CLI's crates,
+# smllm and smllm-format, never reach the wasm and allow these at their crate
+# roots, as the tests of every crate do. Each reason says what the pattern
+# costs and what to use instead.
+disallowed-methods = [
+  { path = "slice::sort", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_by", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_by_key", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_by_cached_key", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_unstable", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_unstable_by", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::sort_unstable_by_key", reason = "the general sort adds about 23 KB to the wasm: use crate::utils::merge_sort_by" },
+  { path = "slice::join", reason = "adds about 900 bytes to the wasm: use crate::utils::join or join_with" },
+  { path = "slice::concat", reason = "adds the same code as join to the wasm: push each item onto one String" },
+  { path = "core::iter::Iterator::flat_map", reason = "each use compiles its own state machine into the wasm: use nested loops" },
+  { path = "core::iter::Iterator::flatten", reason = "each use compiles its own state machine into the wasm: use nested loops" },
+]
+disallowed-types = [
+  { path = "alloc::collections::BTreeMap", reason = "each element type instantiates the whole B-tree in the wasm: use crate::utils::SmallMap" },
+  { path = "alloc::collections::BTreeSet", reason = "each element type instantiates the whole B-tree in the wasm: use crate::utils::SmallMap" },
+]

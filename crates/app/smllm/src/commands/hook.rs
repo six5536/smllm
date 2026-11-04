@@ -1,6 +1,5 @@
 //! `smllm harness hook <HARNESS> <EVENT>`: one hook call for any harness
-//! (HOST-7, HOST-8, HOST-17, CLI-8).
-// @zen-component: HOST-Hook
+//! (HARN-3, HARN-3, HARN-3, HARN-3).
 
 use std::io::Read as _;
 use std::path::PathBuf;
@@ -27,7 +26,7 @@ pub const COMMAND: &str = "smllm harness hook {harness} {event}";
 
 /// An event by name, also under the names smllm 0.2 installed, so hooks
 /// installed before keep working until reinstalled.
-// @zen-impl: HOST-17_AC-3
+// sokf-implements: HARN-3_AC-4
 pub fn event(name: &str) -> Option<Event> {
     match name {
         "user-prompt-submit" => Some(Event::PromptSubmit),
@@ -52,10 +51,10 @@ fn can(h: &dyn Harness, event: Event, answer: &Answer) -> bool {
 /// are kept per harness, the one that sent the input (Cursor running Claude
 /// Code's hooks binds as `cursor`). Only a view loads the session's configs:
 /// a prompt touches the session alone, and a stop the session allows needs
-/// no more (NFR-2).
-// @zen-impl: HOST-7_AC-1
-// @zen-impl: HOST-8_AC-1
-// @zen-impl: HOST-17_AC-1
+/// no more (HARN-4).
+// sokf-implements: HARN-3_AC-5
+// sokf-implements: HARN-3_AC-6
+// sokf-implements: HARN-3_AC-2
 pub fn answer(h: &dyn Harness, event: Event, input: &HookInput) -> Result<Answer> {
     let allow = Answer::Allow { stderr: None };
     let harness = if input.harness.is_empty() {
@@ -71,7 +70,7 @@ pub fn answer(h: &dyn Harness, event: Event, input: &HookInput) -> Result<Answer
     match event {
         Event::SessionStart => {
             // The entry block cannot reach this agent now: bind nothing yet
-            // (HOST-17_AC-2).
+            // (HARN-3_AC-3).
             if !can(h, event, &context()) {
                 return Ok(allow);
             }
@@ -108,7 +107,7 @@ fn context() -> Answer {
 
 /// The entry block for a session start: `view` of the bound `session`, else
 /// a new binding from the configs found at the input's `cwd`; allow when
-/// there are none (HOST-8).
+/// there are none (HARN-3).
 fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<Answer> {
     if let Some(s) = &session {
         let mut rt = Runtime::bound(Some(s))?;
@@ -135,7 +134,7 @@ fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<A
 /// `answer` in a form `h` can give at `event`: a stop it cannot block lets
 /// the agent stop with the events list on stderr; context it cannot add is
 /// dropped.
-// @zen-impl: HOST-17_AC-2
+// sokf-implements: HARN-3_AC-3
 pub fn degrade(h: &dyn Harness, event: Event, answer: Answer) -> Answer {
     if can(h, event, &answer) {
         return answer;
@@ -150,9 +149,10 @@ pub fn degrade(h: &dyn Harness, event: Event, answer: Answer) -> Answer {
 }
 
 /// `smllm harness hook <HARNESS> <EVENT>`: failures exit 1 with stderr only.
-// @zen-impl: CLI-8_AC-1
+// sokf-implements: HARN-3_AC-1
+// sokf-implements: PLUG-1_AC-1
 pub fn hook(args: &HookArgs) -> Result<u8> {
-    // A failed hook exits 1, stderr only (HOST-7).
+    // A failed hook exits 1, stderr only (HARN-3).
     let Some(h) = harness::find(&args.name) else {
         eprintln!("error: no harness named {}", args.name);
         return Ok(EXIT_ERRORS);
@@ -166,7 +166,7 @@ pub fn hook(args: &HookArgs) -> Result<u8> {
     };
     let mut stdin = String::new();
     let _ = std::io::stdin().read_to_string(&mut stdin);
-    // Input that does not parse is empty: no field is required (HOST-7).
+    // Input that does not parse is empty: no field is required (HARN-3).
     let input = HookInput::parse(h.as_ref(), event, &stdin).unwrap_or_default();
     let result = answer(h.as_ref(), event, &input).map(|a| degrade(h.as_ref(), event, a));
     emit(
@@ -183,7 +183,7 @@ pub fn hook(args: &HookArgs) -> Result<u8> {
 mod tests {
     use super::*;
 
-    // @zen-test: HOST-17_AC-3
+    // sokf-tests: HARN-3_AC-4
     #[test]
     fn old_event_names_still_parse() {
         assert_eq!(event("user-prompt-submit"), Some(Event::PromptSubmit));
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(event("nope"), None);
     }
 
-    // @zen-test: HOST-17_AC-2
+    // sokf-tests: HARN-3_AC-3
     #[test]
     fn answers_a_harness_cannot_give_degrade_to_allow() {
         let reason = || "<smllm>events</smllm>".to_string();

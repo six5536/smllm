@@ -1,4 +1,4 @@
-//! Starting points written by `smllm new` and `smllm init` (CFG-15).
+//! Starting points written by `smllm new` and `smllm init` (FMT-7).
 
 /// A new `<id>.smllm.yaml`.
 pub fn machine_template(id: &str) -> String {

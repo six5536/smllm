@@ -14,6 +14,8 @@ use crate::{Error, JsonValue};
 /// The deepest nesting of objects and arrays accepted (serde_json's limit).
 pub const MAX_DEPTH: usize = 128;
 
+// sokf-implements: JSON-1_AC-1
+// sokf-implements: JSON-1_AC-3
 /// Parse a JSON document.
 pub fn parse(input: &str) -> Result<JsonValue, Error> {
     let mut p = Parser {
@@ -223,6 +225,7 @@ impl Parser<'_> {
         Ok(value)
     }
 
+    // sokf-implements: JSON-1_AC-2
     /// `-? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?`: an integer
     /// in range becomes `Int` / `UInt`, anything else `Number` (its text).
     fn number(&mut self) -> Result<JsonValue, Error> {
@@ -389,6 +392,7 @@ mod tests {
         );
     }
 
+    // sokf-tests: JSON-5_AC-1
     #[test]
     fn nesting_is_bounded() {
         let nest = |n: usize| "[".repeat(n) + &"]".repeat(n);

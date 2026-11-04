@@ -239,6 +239,7 @@ jobs:
         with:
           path: artifacts
 
+      # sokf-implements: LNCH-2_AC-3
       - name: Place the binaries into their platform packages
         run: |
           for pkg in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do

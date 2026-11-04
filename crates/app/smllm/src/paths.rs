@@ -1,5 +1,4 @@
-//! User directories and config lookup (CLI conventions, STO-1).
-// @zen-component: CLI-Lookup
+//! User directories and config lookup (CLI conventions, STORE-1).
 
 use std::path::{Path, PathBuf};
 
@@ -26,6 +25,12 @@ pub fn user_config_dir() -> Result<PathBuf> {
 pub fn user_state_dir() -> Result<PathBuf> {
     let s = strategy()?;
     Ok(s.state_dir().unwrap_or_else(|| s.data_dir()).join("smllm"))
+}
+
+/// `$XDG_CACHE_HOME/smllm` (`~/.cache/smllm`): what smllm can rebuild, such
+/// as saved loads.
+pub fn user_cache_dir() -> Result<PathBuf> {
+    Ok(strategy()?.cache_dir().join("smllm"))
 }
 
 /// The home directory: the root of every harness's user-scope files.
@@ -55,8 +60,8 @@ pub fn explicit(flag: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Configs to load: `--config`/`SMLLM_CONFIG` alone, else the user config
-/// then the nearest project config (D26). Empty when none exists (HOST-8).
-// @zen-impl: CLI-3_AC-2
+/// then the nearest project config (D26). Empty when none exists (HARN-3).
+// sokf-implements: CLI-4_AC-1
 pub fn lookup(explicit: Option<&Path>, from: &Path) -> Result<Vec<ConfigFile>> {
     if let Some(p) = self::explicit(explicit) {
         let p = if p.is_relative() { from.join(p) } else { p };
@@ -87,7 +92,7 @@ pub fn lookup(explicit: Option<&Path>, from: &Path) -> Result<Vec<ConfigFile>> {
 
 /// Whether a config file configures smllm: it has `[machines]` or `[idle]`.
 /// One holding only `[harness]` (the parts `harness install --without`
-/// declined) does not turn smllm on (HOST-8). A file that does not parse
+/// declined) does not turn smllm on (HARN-3). A file that does not parse
 /// counts, so its error is reported.
 pub fn configures(path: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else {
@@ -98,7 +103,7 @@ pub fn configures(path: &Path) -> bool {
     })
 }
 
-/// The configs recorded on a session (STO-2), as `ConfigFile`s.
+/// The configs recorded on a session (STORE-2), as `ConfigFile`s.
 pub fn recorded(paths: &[String]) -> Vec<ConfigFile> {
     paths
         .iter()

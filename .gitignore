@@ -26,3 +26,6 @@
 /target/llvm-cov
 /target/llvm-cov-target
 *.profraw
+
+# sokf's validation cache
+/.sokf/cache/

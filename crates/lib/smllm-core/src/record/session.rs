@@ -1,5 +1,4 @@
 //! A session: one harness conversation, keyed by an smllm session key.
-// @zen-component: STO-Records
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -7,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::*;
 use crate::record::InstanceKey;
 
-/// A session record (STO-1, STO-2).
+/// A session record (STORE-1, STORE-2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -22,22 +21,23 @@ pub struct Session {
     /// The harness's own session id, when it has one.
     #[cfg_attr(feature = "serde", serde(default))]
     pub host_session: Option<String>,
-    /// Working directory at bind: guard/action commands run here (DEC-7).
+    /// Working directory at bind: guard/action commands run here (CLI-11).
     pub cwd: String,
-    /// The config files bound at creation (STO-2); opaque to the core.
+    /// The config files bound at creation (STORE-2); opaque to the core.
     #[cfg_attr(feature = "serde", serde(default))]
     pub configs: Vec<String>,
     /// The instance this session is working on; `None` = idle.
     #[cfg_attr(feature = "serde", serde(default))]
+    // sokf-implements: AGT-10_AC-1
     pub holding: Option<InstanceKey>,
     /// The instance put aside by `unmatched` (IDLE: detour).
     #[cfg_attr(feature = "serde", serde(default))]
     pub interrupted: Option<InstanceKey>,
-    /// The agent fired `yield` since the last user prompt (TURN-4, TURN-8).
+    /// The agent fired `yield` since the last user prompt (AGT-8, AGT-8).
     #[cfg_attr(feature = "serde", serde(default))]
     pub yielded: bool,
     /// The stop hook blocked, and the agent has fired no event since
-    /// (TURN-6): only then does a harness continuation let the agent stop.
+    /// (AGT-8): only then does a harness continuation let the agent stop.
     #[cfg_attr(feature = "serde", serde(default))]
     pub blocked: bool,
     /// Created, unix ms.
@@ -48,7 +48,7 @@ pub struct Session {
 
 impl Session {
     /// The stop hook lets the agent stop at once: it yielded, or it holds
-    /// no instance (TURN-4, TURN-5).
+    /// no instance (AGT-8, AGT-8).
     pub fn may_stop(&self) -> bool {
         self.yielded || self.holding.is_none()
     }

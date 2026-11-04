@@ -1,5 +1,4 @@
-//! One history line per event, appended by the store as JSONL (DEC-8).
-// @zen-component: INST-Records
+//! One history line per event, appended by the store as JSONL (AGT-1).
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -27,7 +26,7 @@ pub struct HistoryEntry {
     /// State after.
     #[cfg_attr(feature = "serde", serde(default))]
     pub to: Option<String>,
-    /// The event's params (TURN-10: kept here, not on the instance).
+    /// The event's params (AGT-1: kept here, not on the instance).
     #[cfg_attr(feature = "serde", serde(default))]
     pub params: SmallMap<String>,
     /// Guard results, states passed through, failed actions.

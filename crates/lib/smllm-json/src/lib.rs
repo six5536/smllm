@@ -6,9 +6,10 @@
 //! serde_json does, so output is byte-identical to serde_json's for the same
 //! shapes. Integers are `i64` / `u64`; any other number is kept as its text
 //! and never becomes a float, so no float code is linked.
-// @zen-component: ENG-Json
 #![no_std]
 #![warn(missing_docs)]
+// The tests run on the host, outside the wasm size rules of clippy.toml.
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types))]
 
 extern crate alloc;
 

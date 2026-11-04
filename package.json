@@ -21,6 +21,7 @@
     "verify-version": "node scripts/verify-version.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "test:example": "tsc -p examples/wasm && node examples/wasm/node.ts",
+    "bench:cli": "node scripts/bench-cli.mjs",
     "install:local": "CARGO_BUILD_JOBS=4 cargo install --quiet --locked --path crates/app/smllm"
   },
   "devDependencies": {

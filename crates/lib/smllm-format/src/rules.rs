@@ -1,16 +1,15 @@
 //! The rules that `smllm validate` cites: each finding ends with the code of
-//! the rule that it breaks, such as `(CFG-7)`. [`RULES`] lists every code that
+//! the rule that it breaks, such as `(FMT-4)`. [`RULES`] lists every code that
 //! a finding can carry, and [`markdown`] renders the list as the page that
 //! `smllm info rules` prints and `docs/validate-rules.md` holds. A test of the
 //! CLI checks that the page is current, and a test of this module checks that
 //! every code in the source is listed.
-// @zen-component: CFG-Findings
-// @zen-impl: CFG-14_AC-1
+// sokf-implements: FMT-6_AC-1
 
 /// One rule that a finding can cite.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rule {
-    /// The code that a finding prints, such as `CFG-7`.
+    /// The code that a finding prints, such as `FMT-4`.
     pub code: &'static str,
     /// The rule's name.
     pub title: &'static str,
@@ -18,115 +17,76 @@ pub struct Rule {
     pub checks: &'static str,
 }
 
-/// Every rule that a finding can cite, in the order of their codes.
+/// Every rule that a finding can cite, grouped by contract: the code of a
+/// rule is the key of the contract part whose promise the finding breaks.
 pub const RULES: &[Rule] = &[
     Rule {
-        code: "CFG-1",
+        code: "FMT-1",
         title: "The machine file",
-        checks: "The file is YAML that parses, sets `meta.smllm: 1`, and has at least one state. Its keys are the known ones, each required key is present, and each value has the expected type. The machine's ID and its state names have the allowed characters, and no other machine in the config has the same ID or one that differs only in case.",
+        checks: "The file is YAML that parses, sets `meta.smllm: 1`, and has at least one state. Its keys are the known ones, each required key is present, and each value has the expected type. The machine's ID and its state names have the allowed characters, and no other machine in the config has the same ID or one that differs only in case. The file uses only the part of XState v5 that smllm supports: flat atomic and final states, without nested or parallel states, delays, invocations, or context.",
     },
     Rule {
-        code: "CFG-2",
-        title: "The supported part of XState",
-        checks: "The file uses only the part of XState v5 that smllm supports: flat atomic and final states, without nested or parallel states, delays, invocations, or context.",
+        code: "FMT-2",
+        title: "States and transitions",
+        checks: "A final state has no `on` or `always`, isn't an entry point, and can be reached. A machine without a final state gets an info finding, because its instances never complete. At most one state is the fallback, and the fallback isn't final. A state doesn't handle a built-in event under `on`, a list of guarded transitions ends with one without a guard, and neither the ref param nor any other param has the name of a param of `enter`. An event with the ref param sets the ref.",
     },
     Rule {
-        code: "CFG-3",
-        title: "Transitions",
-        checks: "The initial state and each transition's target exist, each state can be reached, and a transition that should re-enter its state names it as the target.",
+        code: "FMT-3",
+        title: "Actions and guards",
+        checks: "Each action is a `{type, params}` object of a known type, with the params that its type needs. A prompt has exactly one of `text` and `file`, a file path is relative to the file that gives it, and `setRef` appears only where an event carries the ref param. Each guard is a `{type, params}` object of a known type, with valid params. A `visits` guard counts a state that exists, and its `atLeast` is more than 0.",
     },
     Rule {
-        code: "CFG-4",
-        title: "Actions",
-        checks: "Each action is a `{type, params}` object of a known type, with the params that its type needs. A prompt has exactly one of `text` and `file`, a file path is relative to the file that gives it, and `setRef` appears only where an event carries the ref param.",
+        code: "FMT-4",
+        title: "Event and instance declarations",
+        checks: "The ref param's name, and each declared event and param name, contain only letters, digits, `_`, and `-`. An event's params are an object of string properties, each required param is in `properties`, and each `enum` and `pattern` is valid and allows at least one value. A state rewords only the events that it has a transition on, and only params that the event declares in `meta.events`. Each declared event is used by a state, and each ref pattern can match a ref.",
     },
     Rule {
-        code: "CFG-5",
-        title: "Guards",
-        checks: "Each guard is a `{type, params}` object of a known type, with valid params. A `visits` guard counts a state that exists, and its `atLeast` is more than 0.",
-    },
-    Rule {
-        code: "CFG-6",
-        title: "The instance's names",
-        checks: "The ref param's name contains only letters, digits, `_`, and `-`.",
-    },
-    Rule {
-        code: "CFG-7",
-        title: "Event declarations",
-        checks: "Each declared event and param has a name that contains only letters, digits, `_`, and `-`. Its params are an object of string properties, each required param is in `properties`, and each `enum` and `pattern` is valid and allows at least one value.",
-    },
-    Rule {
-        code: "CFG-8",
-        title: "Rewording for one state",
-        checks: "A state rewords only the events that it has a transition on, and only params that the event declares in `meta.events`.",
-    },
-    Rule {
-        code: "CFG-9",
-        title: "Using events",
-        checks: "Each declared event is used by a state, and each ref pattern can match a ref.",
-    },
-    Rule {
-        code: "CFG-11",
-        title: "Shared actions",
-        checks: "`meta.sharedActions` lists only states that exist.",
-    },
-    Rule {
-        code: "CFG-12",
-        title: "Final states",
-        checks: "A final state has no `on` or `always`, isn't an entry point, and can be reached. A machine without a final state gets a warning, because its instances never complete.",
-    },
-    Rule {
-        code: "CFG-13",
-        title: "The machine's structure",
-        checks: "At most one state is the fallback, and the fallback isn't final. A state doesn't handle a built-in event under `on`, a list of guarded transitions ends with one without a guard, and neither the ref param nor any other param has the name of a param of `enter`. An event with the ref param sets the ref.",
-    },
-    Rule {
-        code: "CFG-14",
+        code: "FMT-6",
         title: "Findings",
         checks: "smllm can read each file that the config names.",
     },
     Rule {
-        code: "CFG-15",
+        code: "FMT-7",
         title: "Combining configs",
         checks: "A config with errors doesn't replace the machines of the configs before it, and validate says which machines it leaves out and which machine replaces which.",
     },
     Rule {
-        code: "CFG-16",
+        code: "AGT-1",
+        title: "Entry block",
+        checks: "Author text, such as a prompt or an event's description, contains none of the closing tags `</smllm>`, `</instructions>`, and `</events>` that fence smllm's own text, because the agent couldn't then tell smllm's text from the author's. A finding under this rule is a warning.",
+    },
+    Rule {
+        code: "AGT-2",
+        title: "Events list",
+        checks: "A built-in event changes only its description, never its params.",
+    },
+    Rule {
+        code: "AGT-5",
+        title: "Transitions",
+        checks: "The initial state and each transition's target exist, each state can be reached, and a transition that should re-enter its state names it as the target. A state with `always` has no `on` events, because smllm leaves it at once, and no chain of `always` transitions loops back to its start.",
+    },
+    Rule {
+        code: "AGT-6",
+        title: "Guards and actions",
+        checks: "`meta.sharedActions` lists only states that exist.",
+    },
+    Rule {
+        code: "MCP-1",
         title: "String params",
         checks: "Each param has `type: string`.",
     },
     Rule {
-        code: "DEC-2",
-        title: "Always states",
-        checks: "A state with `always` has no `on` events, because smllm leaves it at once, and no chain of `always` transitions loops back to its start.",
-    },
-    Rule {
-        code: "DEC-4",
-        title: "Command forms",
-        checks: "A command's `run` is a non-empty string, run by a shell, or a non-empty list, run without one.",
-    },
-    Rule {
-        code: "DEC-5",
-        title: "Command results",
-        checks: "A command's `timeoutSecs` is at least 1.",
-    },
-    Rule {
-        code: "DEC-9",
-        title: "Commands without a shell",
-        checks: "A list-form `run` doesn't rely on `$SMLLM_*` variables, because no shell expands them.",
-    },
-    Rule {
-        code: "IDLE-1",
-        title: "Built-in events",
-        checks: "A built-in event changes only its description, never its params.",
-    },
-    Rule {
-        code: "IDLE-4",
+        code: "CLI-3",
         title: "Saved instances",
         checks: "Each saved instance is in a state that still exists.",
     },
     Rule {
-        code: "STO-1",
+        code: "CLI-11",
+        title: "Command guards and actions",
+        checks: "A command's `run` is a non-empty string, run by a shell, or a non-empty list, run without one. A list-form `run` doesn't rely on `$SMLLM_*` variables, because no shell expands them. A command's `timeoutSecs` is at least 1.",
+    },
+    Rule {
+        code: "STORE-1",
         title: "The instance files",
         checks: "smllm can read each instance file and each ref marker of the config's machines.",
     },
@@ -142,7 +102,7 @@ pub fn markdown() -> String {
     let mut out = String::from(
         "# The rules of smllm validate\n\n\
          This page lists the rules that `smllm validate` checks. Each finding ends with the code of \
-         the rule that it breaks, such as `(CFG-7)`, and this page says what each rule checks. \
+         the rule that it breaks, such as `(FMT-4)`, and this page says what each rule checks. \
          `smllm info rules` prints the same page, so it always matches the smllm that you run.\n\n\
          | Code | Rule | What validate checks |\n\
          | ---- | ---- | -------------------- |\n",
@@ -173,7 +133,7 @@ mod tests {
                 }
             }
         }
-        let re = regex::Regex::new(r#""((?:CFG|DEC|IDLE|STO)-\d+)""#).unwrap();
+        let re = regex::Regex::new(r#""((?:FMT|AGT|MCP|CLI|STORE)-\d+)""#).unwrap();
         let mut codes = std::collections::BTreeSet::new();
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();
@@ -184,7 +144,7 @@ mod tests {
         codes
     }
 
-    // @zen-test: CFG-14_AC-1
+    // sokf-tests: FMT-6_AC-1
     #[test]
     fn every_code_in_the_source_is_listed_and_every_listed_code_is_used() {
         let used = codes_in_source();
@@ -209,6 +169,6 @@ mod tests {
             assert!(page.contains(&format!("| `{}` |", r.code)));
             assert_eq!(rule(r.code), Some(r));
         }
-        assert_eq!(rule("CFG-10"), None);
+        assert_eq!(rule("FMT-5"), None);
     }
 }

@@ -1,6 +1,5 @@
 //! Findings: every problem collected, with file, line, YAML path, level and
-//! the rule it comes from (CFG-14).
-// @zen-component: CFG-Findings
+//! the rule it comes from (FMT-6).
 
 use std::path::{Path, PathBuf};
 

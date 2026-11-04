@@ -36,6 +36,7 @@ for (const [, name, version] of cargo.matchAll(/^([\w-]+) = \{ path = "crates\/l
 }
 
 // --- The Claude Code plugin manifest ------------------------------------------
+// sokf-tests: PLUG_P-1
 record(
   "plugin/.claude-plugin/plugin.json version",
   JSON.parse(readFileSync(join(root, "plugin/.claude-plugin/plugin.json"), "utf8")).version,

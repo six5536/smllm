@@ -1,6 +1,5 @@
 //! Events fired inside a state machine: its own events and the built-ins
 //! `yield`, `pause`, `unmatched`, `resume` (from a fallback state).
-// @zen-component: ENG-Machine
 
 use crate::Error;
 use crate::engine::offer::{check_params, machine_offers};
@@ -18,7 +17,7 @@ pub(crate) enum Gone {
     /// Its machine is not in the (current) config: reported, never saved, so
     /// a briefly broken file does not lose the session's place.
     Unconfigured(Box<Reply>),
-    /// Another session holds it, or it is no longer active or present (INST-7).
+    /// Another session holds it, or it is no longer active or present (AGT-10).
     Moved(Box<Reply>),
 }
 
@@ -63,7 +62,7 @@ fn when_gone(
 
 /// The held instance, or why not. `persist`: drop the session to idle in the
 /// store when it moved (event calls and the stop hook); views never write
-/// (ENG-5).
+/// (AGT-3).
 pub(crate) fn held<'c>(
     turn: &mut Turn<'c, '_>,
     persist: bool,
@@ -136,8 +135,8 @@ fn gone(
     Ok(Err(Gone::Moved(Box::new(r))))
 }
 
-/// Drop to idle with an error (INST-7).
-// @zen-impl: INST-7_AC-1
+/// Drop to idle with an error (AGT-10).
+// sokf-implements: AGT-10_AC-6
 pub(crate) fn moved(turn: &mut Turn<'_, '_>, msg: String) -> Result<Reply, Error> {
     // Nothing was entered: drop the prompts this call gathered.
     turn.prompts.clear();
@@ -146,7 +145,7 @@ pub(crate) fn moved(turn: &mut Turn<'_, '_>, msg: String) -> Result<Reply, Error
     idle::reply(turn, false, Some(msg))
 }
 
-/// No event: entry block (optionally) + events list (ENG-5).
+/// No event: entry block (optionally) + events list (AGT-3).
 pub(crate) fn view(turn: &mut Turn<'_, '_>, entry: bool) -> Result<Reply, Error> {
     Ok(match held(turn, false)? {
         Ok((machine, inst)) => view_held(turn, machine, &inst, entry),
@@ -185,7 +184,7 @@ fn missing_state_note(turn: &mut Turn<'_, '_>, machine: &Machine, inst: &Instanc
     }
 }
 
-/// A block opened with the header of where `inst` rests (TURN-1).
+/// A block opened with the header of where `inst` rests (AGT-1).
 pub(crate) fn open(turn: &Turn<'_, '_>, machine: &Machine, inst: &Instance) -> Block {
     Block::open(&header(
         &turn.session.key,
@@ -214,7 +213,7 @@ pub(crate) fn head(
             .iter()
             .map(|(k, v)| format!("{k} = {}", quote(v)))
             .collect();
-        b.line(&format!("Params: {}", ps.join(", ")));
+        b.line(&format!("Params: {}", join(ps.iter().map(String::as_str))));
     }
     b.lines(&turn.notes)
         .lines(&turn.trace)
@@ -261,7 +260,7 @@ pub(crate) fn location(machine: &Machine, inst: &Instance) -> Location {
     }
 }
 
-/// A rejected call: header, `error:`, events list; nothing changes (TURN-3).
+/// A rejected call: header, `error:`, events list; nothing changes (AGT-3).
 fn reject(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -274,7 +273,7 @@ fn reject(
 }
 
 /// Fire an event in a machine state.
-// @zen-impl: ENG-2_AC-1
+// sokf-implements: AGT-3_AC-2
 pub(crate) fn fire(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, Error> {
     let (machine, mut inst) = match held(turn, true)? {
         Ok(p) => p,
@@ -348,7 +347,7 @@ pub(crate) fn fire(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Resu
                 return reject(turn, machine, &inst, msg);
             };
             // Only the chosen transition's setRef counts; checked before any
-            // action runs, so a rejected call changes nothing (TURN-3).
+            // action runs, so a rejected call changes nothing (AGT-3).
             if t.actions.contains(&ActionDef::SetRef)
                 && let Err(msg) = check_set_ref(turn, machine, &inst)
             {
@@ -375,8 +374,8 @@ pub(crate) fn fire(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Resu
 }
 
 /// `setRef` may run once, with a ref no other instance has; setting the ref
-/// the instance already has changes nothing (INST-3).
-// @zen-impl: INST-3_AC-1
+/// the instance already has changes nothing (AGT-10).
+// sokf-implements: AGT-10_AC-4
 fn check_set_ref(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -418,8 +417,8 @@ fn check_set_ref(
     Ok(())
 }
 
-/// `unmatched`: to the fallback state, or interrupt and go to idle (IDLE-2).
-// @zen-impl: IDLE-2_AC-1
+/// `unmatched`: to the fallback state, or interrupt and go to idle (AGT-7).
+// sokf-implements: AGT-7_AC-1
 fn unmatched(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -487,8 +486,8 @@ fn leave_to_idle(
 }
 
 /// Save instance, history and session. `Err(reply)` when another session
-/// wrote first (INST-8).
-// @zen-impl: INST-8_AC-1
+/// wrote first (AGT-10).
+// sokf-implements: AGT-10_AC-7
 pub(crate) fn save(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -508,6 +507,7 @@ pub(crate) fn save(
         }
         Err(e) => return Err(e.into()),
     }
+    // sokf-implements: AGT-1_AC-3
     let mut trace = Vec::new();
     trace.extend(turn.notes.iter().cloned());
     for p in &turn.passed {
@@ -535,9 +535,9 @@ pub(crate) fn save(
     Ok(Ok(()))
 }
 
-/// Finish a transition: final state → completed + idle (IDLE-5); else the
+/// Finish a transition: final state → completed + idle (AGT-5); else the
 /// entry block of where the instance rests.
-// @zen-impl: IDLE-5_AC-1
+// sokf-implements: AGT-5_AC-5
 pub(crate) fn commit(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -546,7 +546,10 @@ pub(crate) fn commit(
     mut arrived: String,
 ) -> Result<Reply, Error> {
     if !turn.passed.is_empty() {
-        arrived.push_str(&format!(" via {}", turn.passed.join(", ")));
+        arrived.push_str(&format!(
+            " via {}",
+            join(turn.passed.iter().map(String::as_str))
+        ));
     }
     let is_final = machine.state(&inst.state).is_some_and(|s| s.is_final);
     if is_final {
@@ -575,8 +578,8 @@ pub(crate) fn commit(
     ))
 }
 
-/// `Took over from session K (last active …)` for the header (INST-6).
-// @zen-impl: INST-6_AC-1
+/// `Took over from session K (last active …)` for the header (AGT-11).
+// sokf-implements: AGT-11_AC-1
 pub(crate) fn takeover_note(turn: &mut Turn<'_, '_>, holder: &str) -> Result<String, Error> {
     let last = turn.host.store.session(holder)?.map(|s| s.last_active);
     Ok(match last {

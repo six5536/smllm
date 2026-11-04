@@ -1,6 +1,5 @@
 //! Idle: smllm's own state outside every machine. Its entry block is the idle
 //! list; its events are `enter`, `resume` and `listPaused` (IDLE, INST).
-// @zen-component: IDLE-Idle
 
 use crate::Error;
 use crate::engine::machine::{self, commit, owned, takeover_note};
@@ -15,18 +14,18 @@ use crate::render::{Block, idle_header};
 use crate::utils::SmallMap;
 use crate::utils::join;
 
-/// Paused instances the idle list shows; `listPaused` shows them all (IDLE-7).
+/// Paused instances the idle list shows; `listPaused` shows them all (AGT-9).
 pub(crate) const IDLE_PAUSED: usize = 10;
 
-/// The idle list (TURN-7): header, notes, `error:`, idle instructions, state
+/// The idle list (AGT-9): header, notes, `error:`, idle instructions, state
 /// machines, interrupted and paused instances, events.
-// @zen-impl: TURN-7_AC-1
+// sokf-implements: AGT-9_AC-1
 pub(crate) fn reply(
     turn: &mut Turn<'_, '_>,
     ok: bool,
     error: Option<String>,
 ) -> Result<Reply, Error> {
-    // A rejected keyless call saved no session: show no key (TURN-3).
+    // A rejected keyless call saved no session: show no key (AGT-3).
     let key = if turn.unsaved && !ok {
         String::new()
     } else {
@@ -42,7 +41,7 @@ pub(crate) fn reply(
     })
 }
 
-/// A final state was entered: its block, then the idle list (IDLE-5).
+/// A final state was entered: its block, then the idle list (AGT-5).
 pub(crate) fn after_final(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -160,7 +159,7 @@ type Paused<'c> = Vec<(&'c Machine, Instance)>;
 
 /// The paused instances of the configured machines, newest first (ties by
 /// machine, then label), at most `limit` of them; and how many there are.
-// @zen-impl: IDLE-7_AC-1
+// sokf-implements: AGT-9_AC-2
 fn paused<'c>(turn: &mut Turn<'c, '_>, limit: Option<usize>) -> Result<(Paused<'c>, usize), Error> {
     let mut all = Vec::new();
     let mut total = 0;
@@ -200,8 +199,8 @@ fn paused_lines(b: &mut Block, paused: &[(&Machine, Instance)]) {
 
 /// `listPaused`: every paused instance, in the idle list's order, and the
 /// idle events. A view: it writes nothing, not even the session, so it is
-/// not an event for the stop rule (IDLE-7).
-// @zen-impl: IDLE-7_AC-2
+/// not an event for the stop rule (AGT-9).
+// sokf-implements: AGT-9_AC-3
 fn list_paused(turn: &mut Turn<'_, '_>) -> Result<Reply, Error> {
     let key = turn.session.key.clone();
     let (paused, total) = paused(turn, None)?;
@@ -286,10 +285,10 @@ enum Arrival {
     Repair(String),
 }
 
-/// `enter` (IDLE table, INST-3/6/10, IDLE-3/6).
-// @zen-impl: INST-10_AC-1
-// @zen-impl: IDLE-3_AC-1
-// @zen-impl: IDLE-6_AC-1
+/// `enter` (IDLE table, AGT-10/6/10, AGT-11/6).
+// sokf-implements: AGT-11_AC-4
+// sokf-implements: AGT-11_AC-3
+// sokf-implements: AGT-11_AC-2
 fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, Error> {
     let get = |n: &str| params.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone());
     let Some(machine_id) = get("stateMachine") else {
@@ -311,7 +310,7 @@ fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, 
     let ref_param = machine.instance.ref_param.as_str();
     for (i, (k, _)) in params.iter().enumerate() {
         // One value per param: a repeat would reach the command environment
-        // unchecked by the ref pattern (NFR-5).
+        // unchecked by the ref pattern (CLI-13).
         if params[..i].iter().any(|(p, _)| p == k) {
             return reply(
                 turn,
@@ -402,6 +401,7 @@ fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, 
                     if let Err(e) = entry_point(machine, s) {
                         return reply(turn, false, Some(e));
                     }
+                    // sokf-implements: AGT-11_AC-5
                     if status == Status::Completed {
                         Arrival::Reopen(inst.state.clone())
                     } else {
@@ -440,8 +440,8 @@ fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, 
     commit(turn, machine, inst, from.as_deref(), arrived)
 }
 
-/// Make `inst` active in this session and enter `target` (ACT-5).
-// @zen-impl: ACT-5_AC-1
+/// Make `inst` active in this session and enter `target` (AGT-6).
+// sokf-implements: AGT-6_AC-6
 fn start(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -455,7 +455,7 @@ fn start(
     }
     inst.status = Status::Active;
     inst.holder = Some(turn.session.key.clone());
-    // Entering the fallback state keeps its way back (IDLE-2).
+    // Entering the fallback state keeps its way back (AGT-7).
     if !machine.state(target).is_some_and(|s| s.fallback) {
         inst.resume_state = None;
     }
@@ -482,8 +482,8 @@ fn entry_point(machine: &Machine, state: &str) -> Result<(), String> {
     }
 }
 
-/// An instance by generated id or ref (INST-4).
-// @zen-impl: INST-4_AC-1
+/// An instance by generated id or ref (AGT-10).
+// sokf-implements: AGT-10_AC-5
 fn find(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,
@@ -495,8 +495,8 @@ fn find(
     Ok(turn.host.store.instance_by_ref(&machine.id, value)?)
 }
 
-/// A new instance with a fresh generated id (INST-2).
-// @zen-impl: INST-2_AC-1
+/// A new instance with a fresh generated id (AGT-10).
+// sokf-implements: AGT-10_AC-3
 fn new_instance(
     turn: &mut Turn<'_, '_>,
     machine: &Machine,

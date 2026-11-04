@@ -4,7 +4,6 @@
 //! requires the field (`req`), defaults it (`default`; every `Option` field
 //! is one) or also leaves it out while empty (`skip`). The tests prove the
 //! two agree.
-// @zen-component: ENG-Json
 
 use smllm_json::{Error, Fields, FromJson, JsonValue, ToJson, object};
 
@@ -438,6 +437,3 @@ impl FromJson for ActionDef {
         }
     }
 }
-
-#[cfg(all(test, feature = "serde"))]
-mod tests;

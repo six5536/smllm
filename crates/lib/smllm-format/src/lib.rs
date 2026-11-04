@@ -8,6 +8,8 @@
 //! emits the model as JSON for wasm hosts.
 
 #![warn(missing_docs)]
+// The wasm's size rules of clippy.toml cover only the crates the wasm links.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod compile;
 mod finding;

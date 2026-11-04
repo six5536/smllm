@@ -1,6 +1,5 @@
 //! The CLI host: command guards and actions, prompt files, regex patterns,
-//! the clock and randomness (DEC-4..9, ACT-4).
-// @zen-component: DEC-CommandRunner
+//! the clock and randomness (CLI-11..9, CLI-11).
 
 use std::io::Read;
 use std::path::Path;
@@ -13,7 +12,7 @@ use smllm_core::host::{Action, Call, Clock, Guard, Ids, InstructionSource, Match
 use smllm_core::model::Value;
 use wait_timeout::ChildExt as _;
 
-/// `timeoutSecs` default (DEC-5).
+/// `timeoutSecs` default (CLI-11).
 pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
 /// Output tail kept for the trace.
 const TAIL_CHARS: usize = 400;
@@ -35,13 +34,14 @@ fn tail(text: &str) -> String {
 }
 
 /// Run a `command` call: string → system shell, list → exec; env only;
-/// timeout; exit 0 = ok (DEC-4..6, DEC-9).
-// @zen-impl: DEC-4_AC-1
-// @zen-impl: DEC-5_AC-1
-// @zen-impl: DEC-7_AC-1
+/// timeout; exit 0 = ok (CLI-11..6, CLI-11).
+// sokf-implements: CLI-11_AC-1
+// sokf-implements: CLI-11_AC-3
+// sokf-implements: CLI-11_AC-4
 pub fn run_command(call: &Call<'_>) -> Outcome {
     let mut cmd = match call.params.get("run") {
         Some(Value::Str(s)) => shell(s),
+        // sokf-implements: CLI-11_AC-2
         Some(Value::List(argv)) if !argv.is_empty() => {
             let mut c = Command::new(&argv[0]);
             c.args(&argv[1..]);
@@ -87,7 +87,7 @@ pub fn run_command(call: &Call<'_>) -> Outcome {
     // Drain both pipes on threads so a chatty command cannot fill a pipe and
     // stall before the timeout. Output is collected as it arrives: a
     // background process the command left running keeps the pipes open, and
-    // must not hold smllm hostage after the command itself exits (DEC-5).
+    // must not hold smllm hostage after the command itself exits (CLI-11).
     // Only the tail is kept, and once the command is done the readers stop
     // at their next read, so such a process cannot grow smllm's memory.
     let collected = Arc::new(Mutex::new(Vec::new()));
@@ -148,7 +148,7 @@ pub fn run_command(call: &Call<'_>) -> Outcome {
         }
     };
     if status.success() {
-        // A pass shows no output (DEC-5).
+        // A pass shows no output (CLI-11).
         done.store(true, Ordering::Relaxed);
         return Outcome {
             ok: true,
@@ -177,7 +177,7 @@ pub fn run_command(call: &Call<'_>) -> Outcome {
     }
 }
 
-/// The system shell running `script`: `sh -c` (DEC-4).
+/// The system shell running `script`: `sh -c` (CLI-11).
 #[cfg(not(windows))]
 fn shell(script: &str) -> Command {
     let mut c = Command::new("sh");
@@ -197,7 +197,7 @@ fn shell(script: &str) -> Command {
 }
 
 /// Kill a timed-out command and, on unix, its whole process group.
-// @zen-impl: DEC-5_AC-1
+// sokf-implements: CLI-11_AC-3
 fn kill_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     kill_group(child);
@@ -234,6 +234,7 @@ impl Guard for Commands {
     }
 }
 
+// sokf-implements: CLI-11_AC-5
 impl Action for Commands {
     fn supports(&self, kind: &str) -> bool {
         kind == "command"
@@ -352,8 +353,8 @@ mod tests {
 
     // The Windows twin: `cmd /C` gets the script as
     // written, quotes included (F24); env, failure, timeout.
-    // @zen-test: DEC-4_AC-1
-    // @zen-test: DEC-5_AC-1
+    // sokf-tests: CLI-11_AC-1
+    // sokf-tests: CLI-11_AC-3
     #[cfg(windows)]
     #[test]
     fn cmd_exec_env_quotes_timeout_and_failure() {
@@ -376,7 +377,7 @@ mod tests {
 
     // A timeout kills the command's whole group, and only it: this test
     // process survives, and so does the sleep started beside it (D3-1).
-    // @zen-test: DEC-5_AC-1
+    // sokf-tests: CLI-11_AC-3
     #[cfg(target_os = "linux")]
     #[test]
     fn a_timeout_kills_the_group_and_nothing_else() {

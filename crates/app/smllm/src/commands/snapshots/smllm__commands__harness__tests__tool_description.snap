@@ -1,0 +1,12 @@
+---
+source: crates/app/smllm/src/commands/harness.rs
+expression: "crate::commands::mcp::description()"
+---
+smllm runs state machines that guide your work. Everything smllm says is fenced in <smllm>…</smllm>. The state's instructions are in <instructions>, and the events that you can fire are in <events>.
+- When you finish the work a state asks for, fire exactly one of its events with the `smllm` tool: smllm({ session, event, params }). The result is the next state's instructions.
+- Pass the session key shown in every smllm header on every call.
+- To stop and ask the user something, fire `yield` first, then end your turn.
+- To see where you are and what you can fire, call smllm with no event.
+- Only the main agent calls smllm. Never pass the session key to subagents.
+
+To see where you are, call with { session } alone. To fire an event, call with { session, event, params }. params is an object of strings.

@@ -1,14 +1,13 @@
 //! One engine call's working state, and the transition machinery: guards,
-//! exit → actions → entry, `always` chains, visits (ENG-2, DEC, ACT).
-// @zen-component: ENG-Turn
+//! exit → actions → entry, `always` chains, visits (AGT-3, DEC, ACT).
 
 use crate::host::{Call, Host};
 use crate::model::{ActionDef, Config, GuardDef, Machine, Position, Prompt, Transition, Value};
 use crate::prelude::*;
 use crate::record::{Instance, Session};
-use crate::utils::SmallMap;
+use crate::utils::{SmallMap, join_with};
 
-/// Longest `always` chain before the engine gives up (DEC-2).
+/// Longest `always` chain before the engine gives up (AGT-5).
 pub(crate) const ALWAYS_CAP: usize = 32;
 
 /// Working state for one call.
@@ -23,16 +22,16 @@ pub(crate) struct Turn<'a, 'h> {
     pub params: Vec<(String, String)>,
     /// Header lines after the header (takeover, reopen, …).
     pub notes: Vec<String>,
-    /// Guard results and pass-throughs (DEC-8).
+    /// Guard results and pass-throughs (AGT-1).
     pub trace: Vec<String>,
     /// `always` states passed through.
     pub passed: Vec<String>,
-    /// Failed actions (ACT-3).
+    /// Failed actions (AGT-6).
     pub failures: Vec<String>,
-    /// Prompt text gathered in order (ACT-2).
+    /// Prompt text gathered in order (AGT-6).
     pub prompts: Vec<String>,
     /// A keyless `enter` made the session: it is saved only if the call is
-    /// accepted, so a rejection must not show its key (TURN-3).
+    /// accepted, so a rejection must not show its key (AGT-3).
     pub unsaved: bool,
 }
 
@@ -87,8 +86,8 @@ impl<'a, 'h> Turn<'a, 'h> {
         }
     }
 
-    /// The command environment (DEC-6, ACT-4).
-    // @zen-impl: DEC-6_AC-1
+    /// The command environment (ENG-4, CLI-11).
+    // sokf-implements: ENG-4_AC-4
     pub(crate) fn env(
         &self,
         inst: &Instance,
@@ -119,7 +118,7 @@ impl<'a, 'h> Turn<'a, 'h> {
         env
     }
 
-    /// Evaluate a guard, recording the result in the trace (DEC-5, DEC-8).
+    /// Evaluate a guard, recording the result in the trace (CLI-11, AGT-1).
     fn guard(&mut self, inst: &Instance, state: &str, guard: &GuardDef) -> bool {
         match guard {
             GuardDef::Visits { state: s, at_least } => {
@@ -149,8 +148,8 @@ impl<'a, 'h> Turn<'a, 'h> {
         }
     }
 
-    /// The first transition whose guard passes (DEC-1).
-    // @zen-impl: DEC-1_AC-1
+    /// The first transition whose guard passes (AGT-5).
+    // sokf-implements: AGT-5_AC-2
     pub(crate) fn pick<'t>(
         &mut self,
         inst: &Instance,
@@ -171,16 +170,16 @@ impl<'a, 'h> Turn<'a, 'h> {
     }
 
     /// Run one action list: commands now, prompts gathered; a failed command
-    /// skips the rest of the list's commands (ACT-2, ACT-3).
-    // @zen-impl: ACT-2_AC-1
-    // @zen-impl: ACT-3_AC-1
+    /// skips the rest of the list's commands (AGT-6, AGT-6).
+    // sokf-implements: AGT-6_AC-3
+    // sokf-implements: AGT-6_AC-4
     pub(crate) fn run(&mut self, inst: &mut Instance, list: &[ActionDef], label: &ListLabel<'_>) {
         let mut failed = false;
         for (i, action) in list.iter().enumerate() {
             match action {
                 ActionDef::Prompt(p) => self.prompt(p),
                 ActionDef::SetRef => {
-                    // Checked before the transition was taken (INST-3).
+                    // Checked before the transition was taken (AGT-10).
                     let param = self
                         .config
                         .machine(&inst.machine)
@@ -214,6 +213,8 @@ impl<'a, 'h> Turn<'a, 'h> {
         }
     }
 
+    // sokf-implements: AGT-1_AC-5
+    // sokf-implements: ENG-4_AC-3
     pub(crate) fn prompt(&mut self, prompt: &Prompt) {
         match prompt {
             Prompt::Text(t) => self.prompts.push(t.clone()),
@@ -227,9 +228,9 @@ impl<'a, 'h> Turn<'a, 'h> {
     }
 
     /// Enter `name`: count the visit, then shared-before, own, shared-after
-    /// `entry` (ENG-3, CFG-11).
-    // @zen-impl: ENG-3_AC-1
-    // @zen-impl: CFG-11_AC-1
+    /// `entry` (AGT-5, AGT-6).
+    // sokf-implements: AGT-5_AC-4
+    // sokf-implements: AGT-6_AC-5
     pub(crate) fn enter(
         &mut self,
         machine: &Machine,
@@ -282,11 +283,11 @@ impl<'a, 'h> Turn<'a, 'h> {
         }
     }
 
-    /// Take a picked transition from `source` (ACT-1): external ones run
+    /// Take a picked transition from `source` (AGT-6): external ones run
     /// exit → actions → entry; targetless and non-`reenter` self transitions
-    /// only their actions (CFG-3).
-    // @zen-impl: ACT-1_AC-1
-    // @zen-impl: CFG-3_AC-1
+    /// only their actions (AGT-5).
+    // sokf-implements: AGT-6_AC-2
+    // sokf-implements: AGT-5_AC-1
     pub(crate) fn take(
         &mut self,
         machine: &Machine,
@@ -316,8 +317,8 @@ impl<'a, 'h> Turn<'a, 'h> {
         self.enter(machine, inst, target, Some(source));
     }
 
-    /// Leave eventless states until one without `always` (DEC-2).
-    // @zen-impl: DEC-2_AC-1
+    /// Leave eventless states until one without `always` (AGT-5).
+    // sokf-implements: AGT-5_AC-3
     pub(crate) fn settle(&mut self, machine: &Machine, inst: &mut Instance) {
         for _ in 0..ALWAYS_CAP {
             let current = inst.state.clone();
@@ -371,7 +372,10 @@ pub(crate) fn lists<'m>(
 fn describe(kind: &str, params: &SmallMap<Value>) -> String {
     match params.get("run") {
         Some(Value::Str(s)) => format!("{kind} `{s}`"),
-        Some(Value::List(l)) => format!("{kind} [{}]", l.join(" ")),
+        Some(Value::List(l)) => format!(
+            "{kind} [{}]",
+            join_with(&mut l.iter().map(String::as_str), " ")
+        ),
         _ => kind.to_string(),
     }
 }

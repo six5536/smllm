@@ -4,7 +4,6 @@
 //! actions, prompt files, pattern matching, time and randomness through one
 //! object; sessions and instances live in an in-memory store the host can
 //! export and import as JSON. Every call returns the core `Reply` as JSON.
-// @zen-component: HOST-Wasm
 
 use core::sync::atomic::{AtomicU32, Ordering};
 use smllm_core::host::{
@@ -64,7 +63,7 @@ extern "C" {
     fn history(this: &JsHost, machine: &str, id: &str, entry: &str) -> Result<(), JsValue>;
     /// A record as it is saved (`session`, `binding` or `instance`), as
     /// JSON: the host persists what changed, never a snapshot per call
-    /// (HOST-14).
+    /// (WASM-2).
     #[wasm_bindgen(method, catch)]
     fn put(this: &JsHost, kind: &str, key: &str, record: &str) -> Result<(), JsValue>;
 
@@ -187,7 +186,7 @@ impl Store for WasmStore<'_> {
     }
     // Each write goes to memory, then to the host: a host that throws loses
     // that record, never the transition (as history).
-    // @zen-impl: HOST-14_AC-1
+    // sokf-implements: WASM-2_AC-1
     fn put_session(&mut self, session: &Session) -> Result<(), HostError> {
         self.mem.put_session(session)?;
         let _ = self.host.put("session", &session.key, &json(session));
@@ -396,8 +395,8 @@ impl Engine {
             .map_err(err)
     }
 
-    /// Where the session is, as the `smllm statusline --json` object (STL-8).
-    // @zen-impl: STL-8_AC-1
+    /// Where the session is, as the `smllm statusline --json` object (ENG-3).
+    // sokf-implements: ENG-3_AC-1
     pub fn status(&mut self, key: &str) -> Result<String, JsError> {
         self.with(|e, h| e.status(h, key))
             .map(|s| json(&s))
@@ -432,7 +431,7 @@ impl Engine {
             .map_err(err)
     }
 
-    /// The stop decision as JSON (TURN-4..6): `{"decision": "allow"}` = may
+    /// The stop decision as JSON (AGT-8..6): `{"decision": "allow"}` = may
     /// stop; `{"decision": "block", "text"}` = hold the agent with the events
     /// list; `{"decision": "runaway", "text"}` = let it stop, showing the
     /// list to the user (the harness was already continuing because of a
@@ -463,8 +462,8 @@ impl Engine {
     }
 
     /// The agent-facing tool, as JSON `{name, description, inputSchema}`:
-    /// the core's definition, as the MCP server offers it (HOST-13).
-    // @zen-impl: HOST-13_AC-1
+    /// the core's definition, as the MCP server offers it (WASM-1).
+    // sokf-implements: WASM-1_AC-1
     pub fn tool(&self) -> String {
         /// JSON written as is.
         struct Raw(&'static str);
@@ -483,10 +482,10 @@ impl Engine {
     }
 
     /// A tool call: the agent's arguments as JSON, answered as the MCP
-    /// server answers them (HOST-13). A malformed call or an engine error is
+    /// server answers them (WASM-1). A malformed call or an engine error is
     /// a reply with `ok: false` and `error: …`, never a throw: the agent
     /// sees its mistake as the tool's answer.
-    // @zen-impl: HOST-13_AC-2
+    // sokf-implements: WASM-1_AC-2
     #[wasm_bindgen(js_name = callTool)]
     pub fn call_tool(&mut self, args: &str) -> String {
         let answer = match tool_args(args) {

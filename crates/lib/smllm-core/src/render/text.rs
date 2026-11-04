@@ -1,11 +1,10 @@
 //! Header lines, quoting, timestamps and the agent rules text.
-// @zen-component: TURN-Render
 
 use crate::prelude::*;
 
-/// The rules every agent needs (TURN-9); the MCP tool description and the
-/// `AGENTS.md` block carry them (HOST-12).
-// @zen-impl: TURN-9_AC-1
+/// The rules every agent needs (AGT-4); the MCP tool description and the
+/// `AGENTS.md` block carry them (AGT-4).
+// sokf-implements: AGT-4_AC-1
 pub const AGENT_RULES: &str = "\
 smllm runs state machines that guide your work. Everything smllm says is \
 fenced in <smllm>…</smllm>. The state's instructions are in <instructions>, \
@@ -18,8 +17,8 @@ next state's instructions.
 - To see where you are and what you can fire, call smllm with no event.
 - Only the main agent calls smllm. Never pass the session key to subagents.";
 
-/// `session K · machine › STATE (visit n) · kind label` (TURN-1).
-// @zen-impl: TURN-1_AC-1
+/// `session K · machine › STATE (visit n) · kind label` (AGT-1).
+// sokf-implements: AGT-1_AC-2
 pub(crate) fn header(
     key: &str,
     machine: &str,

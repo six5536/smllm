@@ -1,5 +1,5 @@
 //! What a host supplies: storage, guard/action runners, prompt files, pattern
-//! matching, time and randomness (NFR-1).
+//! matching, time and randomness (ENG-5).
 
 mod memory;
 mod traits;

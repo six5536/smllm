@@ -1,6 +1,5 @@
 //! The engine's public protocol: `bind`, `view`, `menu`, `fire`, `stop`,
-//! `prompt_submitted` (HOST-1).
-// @zen-component: ENG-Engine
+//! `prompt_submitted` (ENG-1).
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -19,9 +18,9 @@ const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 /// `ok: false`) but a call that could not be served.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// No session has this key (HOST-3).
+    /// No session has this key (AGT-3).
     UnknownSession(String),
-    /// No key given, and the event cannot bind one (HOST-3).
+    /// No key given, and the event cannot bind one (AGT-3).
     MissingSession,
     /// The store failed.
     Host(HostError),
@@ -31,7 +30,7 @@ impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::UnknownSession(k) => {
-                // The key is the caller's input: keep it on one line (TURN-12).
+                // The key is the caller's input: keep it on one line (AGT-1).
                 let mut key = String::new();
                 crate::render::push_safe(&mut key, k);
                 write!(
@@ -89,7 +88,7 @@ pub struct Reply {
     pub text: String,
 }
 
-/// The stop hook's decision (TURN-4..6).
+/// The stop hook's decision (AGT-8..6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stop {
     /// Let the turn end.
@@ -97,11 +96,11 @@ pub enum Stop {
     /// Block with this events list.
     Block(String),
     /// Already continuing because of a stop hook and still no event: let it
-    /// end, show the list elsewhere (TURN-6).
+    /// end, show the list elsewhere (AGT-8).
     Runaway(String),
 }
 
-/// How a session is bound (HOST-1).
+/// How a session is bound (ENG-1).
 #[derive(Debug, Clone, Default)]
 pub struct Bind<'s> {
     /// Harness name (`claude`, `none`).
@@ -110,7 +109,7 @@ pub struct Bind<'s> {
     pub host_session: Option<&'s str>,
     /// Working directory.
     pub cwd: &'s str,
-    /// Config files, recorded on the session (STO-2).
+    /// Config files, recorded on the session (STORE-2).
     pub configs: &'s [String],
 }
 
@@ -120,6 +119,7 @@ pub struct Engine {
     config: Config,
 }
 
+// sokf-implements: ENG-1_AC-1
 impl Engine {
     /// An engine for `config`.
     pub fn new(config: Config) -> Self {
@@ -131,9 +131,9 @@ impl Engine {
         &self.config
     }
 
-    /// Guard and action kinds this host cannot run (NFR-9, ACT-6).
-    // @zen-impl: NFR-9_AC-1
-    // @zen-impl: ACT-6_AC-1
+    /// Guard and action kinds this host cannot run (ENG-4, ENG-4).
+    // sokf-implements: ENG-4_AC-2
+    // sokf-implements: ENG-4_AC-1
     pub fn unsupported(&self, guards: &dyn Guard, actions: &dyn Action) -> Vec<String> {
         let mut out = Vec::new();
         let mut note = |m: &str, s: &str, what: &str, kind: &str| {
@@ -169,7 +169,12 @@ impl Engine {
             for s in &m.states {
                 action_list(&s.entry, &m.id, &s.name, &mut note);
                 action_list(&s.exit, &m.id, &s.name, &mut note);
-                for t in s.on.iter().flat_map(|o| &o.transitions).chain(&s.always) {
+                for o in &s.on {
+                    for t in &o.transitions {
+                        transition(t, &m.id, &s.name, &mut note);
+                    }
+                }
+                for t in &s.always {
                     transition(t, &m.id, &s.name, &mut note);
                 }
             }
@@ -179,7 +184,7 @@ impl Engine {
 
     /// Bind a harness session: reuse its key, or create a session in idle.
     /// Returns the current entry block (session start / resume / compact).
-    // @zen-impl: HOST-4_AC-1
+    // sokf-implements: ENG-2_AC-1
     pub fn bind(&self, host: &mut Host<'_>, bind: &Bind<'_>) -> Result<Reply, Error> {
         if let Some(hs) = bind.host_session
             && let Some(key) = host.store.binding(bind.harness, hs)?
@@ -196,6 +201,7 @@ impl Engine {
         self.view(host, &key)
     }
 
+    // sokf-implements: ENG-2_AC-2
     fn new_session(&self, host: &mut Host<'_>, bind: &Bind<'_>) -> Result<Session, Error> {
         let key = loop {
             let k = format!("sm-{}", random_id(host, 6));
@@ -222,15 +228,15 @@ impl Engine {
             .ok_or_else(|| Error::UnknownSession(key.to_string()))
     }
 
-    /// Read-only "where am I": entry block + events list; changes nothing (ENG-5).
-    // @zen-impl: ENG-5_AC-1
+    /// Read-only "where am I": entry block + events list; changes nothing (AGT-3).
+    // sokf-implements: AGT-3_AC-1
     pub fn view(&self, host: &mut Host<'_>, key: &str) -> Result<Reply, Error> {
         self.show(host, key, true)
     }
 
-    /// A tool call (HOST-13): no event is a view, which needs a key; an
+    /// A tool call (WASM-1): no event is a view, which needs a key; an
     /// event is fired. Every host maps the agent's tool arguments here.
-    // @zen-impl: HOST-13_AC-2
+    // sokf-implements: WASM-1_AC-2
     pub fn call(
         &self,
         host: &mut Host<'_>,
@@ -261,9 +267,9 @@ impl Engine {
         idle::reply(&mut turn, true, None)
     }
 
-    /// Fire `event` with `params` (TURN-3). With no key, only `enter` may bind
-    /// a new session, for harnesses without hooks (HOST-3).
-    // @zen-impl: HOST-3_AC-1
+    /// Fire `event` with `params` (AGT-3). With no key, only `enter` may bind
+    /// a new session, for harnesses without hooks (AGT-3).
+    // sokf-implements: AGT-3_AC-4
     pub fn fire(
         &self,
         host: &mut Host<'_>,
@@ -275,7 +281,7 @@ impl Engine {
         let session = match key {
             Some(k) => self.session(host, k)?,
             // Saved only if the enter succeeds: a rejected keyless call
-            // leaves nothing behind (TURN-3).
+            // leaves nothing behind (AGT-3).
             None if event == "enter" => self.new_session(host, bind)?,
             None => return Err(Error::MissingSession),
         };
@@ -291,11 +297,11 @@ impl Engine {
         }
     }
 
-    /// The stop hook (TURN-4..6): in a machine state, block with the events
+    /// The stop hook (AGT-8..6): in a machine state, block with the events
     /// list unless the agent yielded; idle and unknown sessions may stop.
-    // @zen-impl: TURN-4_AC-1
-    // @zen-impl: TURN-5_AC-1
-    // @zen-impl: TURN-6_AC-1
+    // sokf-implements: AGT-8_AC-1
+    // sokf-implements: AGT-8_AC-2
+    // sokf-implements: AGT-8_AC-3
     pub fn stop(
         &self,
         host: &mut Host<'_>,
@@ -313,7 +319,7 @@ impl Engine {
         let runaway = stop_hook_active && session.blocked;
         let mut turn = Turn::new(&self.config, host, session, "");
         // A moved instance is reported once, here, and the session drops to
-        // idle (INST-7); an unconfigured machine lets the agent stop.
+        // idle (AGT-10); an unconfigured machine lets the agent stop.
         let text = match machine::held(&mut turn, true)? {
             Ok((m, inst)) => machine::view_held(&mut turn, m, &inst, false).text,
             Err(machine::Gone::Moved(r)) => r.text,
@@ -329,8 +335,8 @@ impl Engine {
         Ok(Stop::Block(text))
     }
 
-    /// A user prompt arrived: clear the yielded flag; inject nothing (TURN-8).
-    // @zen-impl: TURN-8_AC-1
+    /// A user prompt arrived: clear the yielded flag; inject nothing (AGT-8).
+    // sokf-implements: AGT-8_AC-4
     pub fn prompt_submitted(&self, host: &mut Host<'_>, key: &str) -> Result<(), Error> {
         if let Some(mut s) = host.store.session(key)?
             && (s.yielded || s.blocked)

@@ -1,5 +1,4 @@
-//! Where a session is, as data, for status lines (STL-5, STL-8).
-// @zen-component: STL-Status
+//! Where a session is, as data, for status lines (ENG-3, ENG-3).
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -11,7 +10,7 @@ use crate::model::Machine;
 use crate::prelude::*;
 use crate::record::{Instance, Status};
 
-/// A session's status: the `smllm statusline --json` object (STL-5).
+/// A session's status: the `smllm statusline --json` object (ENG-3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
 pub struct SessionStatus {
@@ -35,7 +34,7 @@ pub struct SessionStatus {
     pub paused: u32,
 }
 
-/// An instance, as a status shows it (STL-5_AC-2).
+/// An instance, as a status shows it (ENG-3_AC-3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
 pub struct InstanceStatus {
@@ -69,12 +68,12 @@ impl InstanceStatus {
 
 impl Engine {
     /// Where session `key` is; reads only, never binds, writes or runs a
-    /// command (STL-3). A held instance that moved or whose machine is not
+    /// command (STL-1). A held instance that moved or whose machine is not
     /// configured reads as idle, as the view shows it.
-    // @zen-impl: STL-3_AC-1
-    // @zen-impl: STL-5_AC-1
-    // @zen-impl: STL-5_AC-2
-    // @zen-impl: STL-8_AC-1
+    // sokf-implements: STL-1_AC-5
+    // sokf-implements: ENG-3_AC-2
+    // sokf-implements: ENG-3_AC-3
+    // sokf-implements: ENG-3_AC-1
     pub fn status(&self, host: &mut Host<'_>, key: &str) -> Result<SessionStatus, Error> {
         let session = host
             .store

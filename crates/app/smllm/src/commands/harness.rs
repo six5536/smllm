@@ -1,6 +1,5 @@
-//! `harness install|status` for every built-in harness (HOST-6, HOST-10,
-//! HOST-11, CLI-7).
-// @zen-component: HOST-Install
+//! `harness install|status` for every built-in harness (HARN-1, HARN-2,
+//! HARN-2, HARN-1).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,7 +20,7 @@ use crate::paths::{self, CONFIG_FILE, PROJECT_DIR};
 
 /// The tiny orientation block for the instructions file each harness reads
 /// (D29); the full rules are in the MCP tool description.
-// @zen-impl: HOST-11_AC-1
+// sokf-implements: HARN-2_AC-2
 pub const INSTRUCTIONS_BLOCK: &str = "\
 ## smllm
 
@@ -38,7 +37,7 @@ pub const ALL: &str = "all";
 /// skill, and at user scope the MCP server (part `mcp`, which Claude Code
 /// does not render there). With the items' `permissions`, these keep
 /// smllm 0.2's part names, so declined parts stored then still apply.
-// @zen-impl: HOST-6_AC-5
+// sokf-implements: HARN-1_AC-5
 const STATUSLINE: &str = "statusline";
 const MCP_USER: &str = "mcp";
 
@@ -61,8 +60,8 @@ fn claude() -> Command {
 }
 
 /// User-scope MCP registration through `claude mcp`, never by editing
-/// `~/.claude.json` (HOST-6); that file is only read to observe it.
-// @zen-impl: HOST-6_AC-3
+/// `~/.claude.json` (HARN-1); that file is only read to observe it.
+// sokf-implements: HARN-1_AC-4
 #[derive(Debug)]
 struct ClaudeMcpUser {
     claude_json: PathBuf,
@@ -170,7 +169,8 @@ impl Tool for Smllm {
         harness::builtin()
     }
 
-    // @zen-impl: HOST-6_AC-1
+    // sokf-implements: HARN-2_AC-1
+    // sokf-implements: HARN-1_AC-2
     fn integration(&self, scope: Scope) -> Integration {
         let mut i = Integration::new()
             .instructions(INSTRUCTIONS_BLOCK)
@@ -181,7 +181,8 @@ impl Tool for Smllm {
         }
         // Claude Code only: the adapter has no neutral item for these.
         if scope != Scope::Local {
-            // @zen-impl: STL-9_AC-2
+            // sokf-implements: HARN-1_AC-7
+            // sokf-implements: HARN-1_AC-6
             i = i.part(
                 "claude",
                 Part::files(
@@ -239,7 +240,7 @@ impl Tool for Smllm {
 
 /// The harness ids `names` stands for: `all` is every built-in harness with
 /// files at `scope`.
-// @zen-impl: HOST-6_AC-4
+// sokf-implements: HARN-1_AC-3
 pub fn harness_ids(names: &[String], scope: Scope) -> Vec<String> {
     if names.iter().any(|n| n == ALL) {
         return harness::builtin()
@@ -252,8 +253,8 @@ pub fn harness_ids(names: &[String], scope: Scope) -> Vec<String> {
 }
 
 /// `smllm harness install|status`.
-// @zen-impl: HOST-6_AC-1
-// @zen-impl: CLI-7_AC-1
+// sokf-implements: HARN-1_AC-2
+// sokf-implements: HARN-1_AC-1
 pub fn run(args: &HarnessArgs, installing: bool, explicit: Option<&Path>) -> Result<u8> {
     let cwd = paths::cwd()?;
     let tool = Smllm::new(&cwd, explicit)?;
@@ -300,15 +301,15 @@ pub fn run(args: &HarnessArgs, installing: bool, explicit: Option<&Path>) -> Res
 mod tests {
     use super::*;
 
-    // @zen-test: HOST-11_AC-1
-    // @zen-test: HOST-12_AC-1
+    // sokf-tests: HARN-2_AC-2
+    // sokf-tests: AGT-4_AC-2
     #[test]
     fn agent_facing_rules_are_a_stable_contract() {
         insta::assert_snapshot!("instructions_block", INSTRUCTIONS_BLOCK);
         insta::assert_snapshot!("tool_description", crate::commands::mcp::description());
     }
 
-    // @zen-test: HOST-6_AC-4
+    // sokf-tests: HARN-1_AC-3
     #[test]
     fn all_is_every_harness_with_the_scope() {
         let all = vec![ALL.to_string()];

@@ -1,5 +1,4 @@
 //! An instance: one piece of work moving through a state machine (INST).
-// @zen-component: INST-Records
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -21,7 +20,8 @@ pub struct InstanceKey {
     pub id: String,
 }
 
-/// Instance status (INST-5).
+/// Instance status (AGT-10).
+// sokf-implements: AGT-10_AC-2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -35,7 +35,7 @@ pub enum Status {
     Interrupted,
     /// Put aside by `pause`.
     Paused,
-    /// Reached a final state; kept (INST-9).
+    /// Reached a final state; kept (AGT-10).
     Completed,
 }
 
@@ -52,6 +52,7 @@ impl Status {
 }
 
 /// An instance record.
+// sokf-implements: AGT-1_AC-4
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -59,11 +60,11 @@ impl Status {
     serde(rename_all = "camelCase")
 )]
 pub struct Instance {
-    /// Generated id, permanent (INST-2).
+    /// Generated id, permanent (AGT-10).
     pub id: String,
     /// State machine id.
     pub machine: String,
-    /// External ref, set once (INST-3).
+    /// External ref, set once (AGT-10).
     #[cfg_attr(feature = "serde", serde(default, rename = "ref"))]
     pub r#ref: Option<String>,
     /// Current (or saved) state.
@@ -73,12 +74,12 @@ pub struct Instance {
     /// Holding session key.
     #[cfg_attr(feature = "serde", serde(default))]
     pub holder: Option<String>,
-    /// Bumped on every write (INST-8).
+    /// Bumped on every write (AGT-10).
     pub version: u64,
-    /// Entries per state (ENG-3).
+    /// Entries per state (AGT-5).
     #[cfg_attr(feature = "serde", serde(default))]
     pub visits: SmallMap<u32>,
-    /// The state `unmatched` left for the fallback state (IDLE-2).
+    /// The state `unmatched` left for the fallback state (AGT-7).
     #[cfg_attr(feature = "serde", serde(default))]
     pub resume_state: Option<String>,
     /// Created, unix ms.
@@ -96,7 +97,7 @@ impl Instance {
         }
     }
 
-    /// What the agent sees as the id param: the ref once set, else the id (INST-4).
+    /// What the agent sees as the id param: the ref once set, else the id (AGT-10).
     pub fn label(&self) -> &str {
         self.r#ref.as_deref().unwrap_or(&self.id)
     }

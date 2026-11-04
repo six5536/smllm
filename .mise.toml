@@ -7,7 +7,6 @@ python = '3.14'
 # The wasm build uses its own dated nightly, which `npm run build:wasm`
 # installs (scripts/build-wasm.mjs NIGHTLY).
 rust = ['1.98', 'nightly']
-sccache = '0.18'
 zig = "0.16.0"
 cargo-binstall = "1.24.0"
 
@@ -20,3 +19,10 @@ cargo-binstall = "1.24.0"
 # Must match the wasm-bindgen crate version in Cargo.lock (npm run build:wasm).
 "cargo:wasm-bindgen-cli" = "0.2.129"
 gh = "latest"
+# Writes the release notes from the commit subjects (cliff.toml). Matches the
+# version that the release and export workflows install.
+git-cliff = "2.14.2"
+# The knowledge store's validator (knowledge/, .sokf/config.toml). sokf is the
+# maintainer's own package, younger than mise's minimum package age, so this entry
+# alone approves it.
+"npm:@six5536/sokf" = { version = "0.1.3", allow_low_downloads = true }

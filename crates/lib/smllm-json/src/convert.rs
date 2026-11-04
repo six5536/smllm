@@ -22,10 +22,12 @@ fn in_field<T>(result: Result<T, Error>, key: &str) -> Result<T, Error> {
     result.map_err(|e| e.in_field(key))
 }
 
+// sokf-implements: JSON-2_AC-6
 fn expected(what: &str, found: &JsonValue) -> Error {
     Error::new(format!("expected {what}, found {}", found.kind()))
 }
 
+// sokf-implements: JSON-2_AC-5
 /// An object's fields, taken out one by one by name, with serde's derive
 /// rules: a required field must be there, a default field may be missing
 /// (`Option` fields are default fields), a field given twice is an error,
@@ -42,6 +44,7 @@ impl FromJson for Fields {
 }
 
 impl Fields {
+    // sokf-implements: JSON-2_AC-2
     /// The field `key`, if present.
     pub fn take(&mut self, key: &str) -> Result<Option<JsonValue>, Error> {
         let Some(i) = self.0.iter().position(|(k, _)| k == key) else {
@@ -60,6 +63,7 @@ impl Fields {
         in_field(T::from_json(v), key)
     }
 
+    // sokf-implements: JSON-2_AC-3
     /// The field `key`, or `T::default()` when it is missing.
     pub fn or_default<T: FromJson + Default>(&mut self, key: &str) -> Result<T, Error> {
         match self.take(key)? {
@@ -68,6 +72,7 @@ impl Fields {
         }
     }
 
+    // sokf-implements: JSON-2_AC-1
     /// The generic-free half of [`Fields::req`], shared by every type.
     #[inline(never)]
     fn present(&mut self, key: &str) -> Result<JsonValue, Error> {
@@ -108,6 +113,7 @@ impl FromJson for bool {
     }
 }
 
+// sokf-implements: JSON-2_AC-7
 impl FromJson for i64 {
     fn from_json(value: JsonValue) -> Result<Self, Error> {
         match value {
@@ -118,6 +124,7 @@ impl FromJson for i64 {
     }
 }
 
+// sokf-implements: JSON-2_AC-7
 impl FromJson for u64 {
     fn from_json(value: JsonValue) -> Result<Self, Error> {
         match value {
@@ -128,12 +135,14 @@ impl FromJson for u64 {
     }
 }
 
+// sokf-implements: JSON-2_AC-7
 impl FromJson for u32 {
     fn from_json(value: JsonValue) -> Result<Self, Error> {
         u32::try_from(u64::from_json(value)?).map_err(|_| Error::new("integer out of range"))
     }
 }
 
+// sokf-implements: JSON-2_AC-4
 impl<T: FromJson> FromJson for Option<T> {
     fn from_json(value: JsonValue) -> Result<Self, Error> {
         match value {

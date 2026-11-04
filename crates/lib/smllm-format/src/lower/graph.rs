@@ -1,6 +1,5 @@
 //! Whole-machine checks: reachability, final states, `always` loops
-//! (CFG-12, CFG-13, DEC-2).
-// @zen-component: CFG-Lower
+//! (FMT-2, FMT-2, AGT-5).
 
 use std::collections::BTreeMap;
 
@@ -11,8 +10,8 @@ use crate::lower::checker::Checker;
 use crate::lower::machine::reachable;
 use crate::ypath;
 
-// @zen-impl: CFG-12_AC-1
-// @zen-impl: DEC-2_AC-2
+// sokf-implements: FMT-2_AC-1
+// sokf-implements: FMT-2_AC-3
 pub(crate) fn check(c: &mut Checker<'_>, m: &Machine) {
     if m.states.is_empty() || m.state(&m.initial).is_none() {
         return;
@@ -24,7 +23,7 @@ pub(crate) fn check(c: &mut Checker<'_>, m: &Machine) {
                 &ypath!["states", s.name],
                 format!("state {} is unreachable", s.name),
                 Some("add a transition to it, or set meta.entryPoint: true"),
-                if s.is_final { "CFG-12" } else { "CFG-3" },
+                if s.is_final { "FMT-2" } else { "AGT-5" },
             );
         }
     }
@@ -34,10 +33,10 @@ pub(crate) fn check(c: &mut Checker<'_>, m: &Machine) {
             &ypath!["states"],
             "no final state: instances of this machine never complete".to_string(),
             Some("if instances should complete, add a state with type: final"),
-            "CFG-12",
+            "FMT-2",
         );
     }
-    // A cycle made only of `always` edges would never rest (DEC-2).
+    // A cycle made only of `always` edges would never rest (AGT-5).
     let always: BTreeMap<&str, Vec<&str>> = m
         .states
         .iter()
@@ -68,7 +67,7 @@ pub(crate) fn check(c: &mut Checker<'_>, m: &Machine) {
                             Some(
                                 "smllm leaves a state with always at once, so the loop might never stop; break it with an event",
                             ),
-                            "DEC-2",
+                            "AGT-5",
                         );
                         reported.push(cycle);
                     }

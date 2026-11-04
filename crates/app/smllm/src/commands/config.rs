@@ -1,5 +1,4 @@
 //! `init`, `new`, `validate`, `compile`, `info schema` (CLI-1..3, 11, 13).
-// @zen-component: CLI-Commands
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +16,7 @@ use crate::paths::{self, CONFIG_FILE, PROJECT_DIR};
 use crate::runtime::Runtime;
 
 /// `smllm init [--user]`.
-// @zen-impl: CLI-1_AC-1
+// sokf-implements: CLI-1_AC-1
 pub fn init(args: &InitArgs) -> Result<u8> {
     let path = if args.user {
         paths::user_config_dir()?.join(CONFIG_FILE)
@@ -50,7 +49,7 @@ pub fn init(args: &InitArgs) -> Result<u8> {
 }
 
 /// `smllm new <ID> [--dir DIR] [--write]`.
-// @zen-impl: CLI-2_AC-1
+// sokf-implements: CLI-2_AC-1
 pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
     if !args
         .id
@@ -92,7 +91,7 @@ pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
             output::shown(&file)
         )));
     }
-    // Prepare the config edit first: a failure leaves every file as found (NFR-6).
+    // Prepare the config edit first: a failure leaves every file as found (CLI-12).
     let registered = register(&config, &config_dir, &file)?;
     write_atomic(&file, &text)?;
     write_atomic(&config, &registered)?;
@@ -148,9 +147,9 @@ fn relative(base: &Path, path: &Path) -> PathBuf {
     out
 }
 
-/// Saved instances whose state no longer exists (IDLE-4), and instance
-/// files that cannot be read (skipped everywhere else, STO-1).
-// @zen-impl: IDLE-4_AC-1
+/// Saved instances whose state no longer exists (CLI-3), and instance
+/// files that cannot be read (skipped everywhere else, STORE-1).
+// sokf-implements: CLI-3_AC-2
 fn saved_states(rt: &mut Runtime) -> Findings {
     let mut out = Findings::default();
     for src in rt.sources.clone() {
@@ -164,7 +163,7 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                 hint: Some(
                     "smllm finds these refs more slowly without the marker, and rewrites the marker when it next sets one of them; do not delete the marker, because smllm reads a missing marker as no such ref".to_string(),
                 ),
-                rule: "STO-1",
+                rule: "STORE-1",
             });
         }
         let (instances, unreadable) = rt.store.scan(&src.id);
@@ -176,7 +175,7 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                 path: None,
                 message: format!("cannot read the instance file of {}: {why}", src.id),
                 hint: Some("smllm skips it; fix or delete the file".to_string()),
-                rule: "STO-1",
+                rule: "STORE-1",
             });
         }
         let Some(m) = rt.engine.config().machine(&src.id) else {
@@ -196,7 +195,7 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                         i.state
                     ),
                     hint: None,
-                    rule: "IDLE-4",
+                    rule: "CLI-3",
                 });
             }
         }
@@ -205,7 +204,7 @@ fn saved_states(rt: &mut Runtime) -> Findings {
 }
 
 /// `smllm validate [PATHS]`.
-// @zen-impl: CLI-3_AC-1
+// sokf-implements: CLI-3_AC-1
 pub fn validate(args: &ValidateArgs, explicit: Option<&Path>) -> Result<u8> {
     let here = paths::cwd()?;
     let mut findings = Findings::default();
@@ -273,6 +272,7 @@ pub fn compile_cmd(args: &CompileArgs) -> Result<u8> {
     Ok(EXIT_OK)
 }
 
+// sokf-implements: CLI-9_AC-1
 /// `smllm info schema`.
 pub fn schema() -> Result<u8> {
     output::text(&format!("{}\n", json_schema()))?;
@@ -280,7 +280,7 @@ pub fn schema() -> Result<u8> {
 }
 
 /// `info rules`: the rules that `validate` cites, as Markdown.
-// @zen-impl: CFG-14_AC-1
+// sokf-implements: FMT-6_AC-1
 pub fn rules() -> Result<u8> {
     output::text(&smllm_format::rules::markdown())?;
     Ok(EXIT_OK)

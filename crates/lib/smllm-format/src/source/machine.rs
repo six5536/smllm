@@ -1,7 +1,6 @@
 //! The state machine file as written: an XState v5 machine config in YAML,
-//! smllm data under `meta` (CFG-1, CFG-2). The JSON Schema is derived from
-//! these types (CFG-15).
-// @zen-component: CFG-Source
+//! smllm data under `meta` (FMT-1, FMT-1). The JSON Schema is derived from
+//! these types (FMT-7).
 
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -187,7 +186,7 @@ pub struct StateNode {
 }
 
 /// smllm's data for a state.
-// @zen-impl: CFG-10_AC-1
+// sokf-implements: FMT-1_AC-3
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct StateMeta {

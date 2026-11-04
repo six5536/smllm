@@ -12,7 +12,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 authors = ["six5536 <10079653+six5536@users.noreply.github.com>"]
 edition = "2024"
 rust-version = "1.98.1"
@@ -50,17 +50,29 @@ proptest = "1.11"
 
 # Internal crates
 agent-harness-adapter-core = "0.1"
-smllm-core = { path = "crates/lib/smllm-core", version = "0.4.1", default-features = false }
-smllm-format = { path = "crates/lib/smllm-format", version = "0.4.1" }
-smllm-json = { path = "crates/lib/smllm-json", version = "0.4.1" }
+smllm-core = { path = "crates/lib/smllm-core", version = "0.5.0", default-features = false }
+smllm-format = { path = "crates/lib/smllm-format", version = "0.5.0" }
+smllm-json = { path = "crates/lib/smllm-json", version = "0.5.0" }
 
-# Optimize release builds for size
+# Release builds of the native CLI optimise for speed: opt-level 2 runs as
+# fast as 3 and builds a smaller binary.
 [profile.release]
-opt-level = "z"  # optimize aggressively for size
+opt-level = 2
 strip = true  # strip debug info and symbols
 lto = true  # full link-time optimization across all crates
 panic = "abort"  # no unwinding overhead
 codegen-units = 1  # single codegen unit → better optimization
+
+# The wasm build optimises for size (scripts/build-wasm.mjs selects it)
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+
+# The release build with symbols, for a profiler such as callgrind
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"
 
 [profile.test]
 opt-level = 0

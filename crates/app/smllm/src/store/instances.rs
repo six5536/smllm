@@ -3,9 +3,8 @@
 //! each ref in a marker file under `<machine>/refs/`, and each history in
 //! `<machine>/history/<id>.jsonl`. The layout is the index: a count is a
 //! listing, the idle list reads only the newest paused files, and a ref is
-//! one file, however much history `done/` keeps (INST-9). Reads never write;
+//! one file, however much history `done/` keeps (AGT-10). Reads never write;
 //! a write creates the folders it needs.
-// @zen-component: STO-FileStore
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -248,16 +247,17 @@ pub(super) fn recent(dir: &Path, status: Status, limit: usize) -> Vec<Instance> 
     read
 }
 
-/// Save `instance` (INST-8, INST-3): the version follows the stored one; a
+/// Save `instance` (AGT-10, AGT-10): the version follows the stored one; a
 /// new ref is free (no other instance has it as its ref or its id) and gets
 /// its marker; the file is written where it is, then renamed to its shelf,
 /// so it is never missing and never in both.
-// @zen-impl: INST-8_AC-2
-// @zen-impl: INST-3_AC-1
+// sokf-implements: STORE-3_AC-1
+// sokf-implements: AGT-10_AC-4
 pub(super) fn put(dir: &Path, instance: &Instance) -> Result<(), HostError> {
     locked(dir, || {
         let stored = find(dir, &instance.id)?;
         let version = stored.as_ref().map_or(0, |(_, i)| i.version);
+        // sokf-implements: STORE-3_AC-2
         if instance.version != version + 1 {
             return Err(HostError::Conflict);
         }

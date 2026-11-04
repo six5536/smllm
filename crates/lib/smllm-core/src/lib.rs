@@ -2,7 +2,7 @@
 //! an LLM agent's turn loop.
 //!
 //! `no_std` + `alloc`, with no IO, time or randomness: a host supplies them
-//! through the traits in [`host`] (NFR-1). The model in [`model`] is built by
+//! through the traits in [`host`] (ENG-5). The model in [`model`] is built by
 //! `smllm-format` from YAML, or deserialised from `smllm compile` JSON (the
 //! `serde` feature).
 //!
@@ -26,6 +26,8 @@
 
 #![no_std]
 #![warn(missing_docs)]
+// The tests run on the host, outside the wasm size rules of clippy.toml.
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types))]
 
 extern crate alloc;
 

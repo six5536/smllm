@@ -1,5 +1,4 @@
-//! Wiring: configs → engine, file store and CLI host (STO-2, HOST-5).
-// @zen-component: HOST-Runtime
+//! Wiring: configs → engine, file store and CLI host (STORE-2, MCP-1).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,7 +17,8 @@ use crate::store::FsStore;
 pub struct Runtime {
     /// Where each loaded machine came from.
     pub sources: Vec<MachineSource>,
-    /// Everything the load found.
+    /// Everything the load found: only a [`Runtime::checked`] load reports
+    /// them, and a run's load is saved only when it found nothing.
     pub findings: Findings,
     /// The engine.
     pub engine: Engine,
@@ -47,7 +47,10 @@ impl Runtime {
             machines: sources,
             findings,
             inputs,
-        } = load_configs(files, mode);
+        } = match mode {
+            Mode::Run => crate::load_cache::load(files),
+            _ => load_configs(files, mode),
+        };
         let machines: HashMap<String, std::path::PathBuf> = sources
             .iter()
             .map(|m| (m.id.clone(), m.state_dir.clone()))
@@ -68,8 +71,9 @@ impl Runtime {
         Self::new(&paths::lookup(explicit, cwd)?)
     }
 
-    /// The configs bound to session `key` when it was created (STO-2); none
+    /// The configs bound to session `key` when it was created (STORE-2); none
     /// when the session is unknown.
+    // sokf-implements: STORE-2_AC-1
     pub fn for_session(key: &str) -> Result<Self> {
         let session = FsStore::user()?.session(key).ok().flatten();
         Self::bound(session.as_ref())
@@ -88,6 +92,7 @@ impl Runtime {
     /// The config files of a call: those recorded on session `key` (none
     /// when it is unknown), or for a keyless call those found from `cwd` (or
     /// `--config`).
+    // sokf-implements: STORE-2_AC-1
     pub fn call_configs(
         key: Option<&str>,
         explicit: Option<&Path>,
@@ -105,7 +110,7 @@ impl Runtime {
     }
 
     /// Fire `event` for session `key`; with no key, an `enter` binds a new
-    /// session to `harness` at `cwd` (HOST-3).
+    /// session to `harness` at `cwd` (AGT-3).
     pub fn fire(
         &mut self,
         harness: &str,
@@ -125,7 +130,7 @@ impl Runtime {
         Ok(self.with(|e, h| e.fire(h, key, event, params, &bind))?)
     }
 
-    /// A tool call (HOST-13): view with no event, else fire; a keyless
+    /// A tool call (WASM-1): view with no event, else fire; a keyless
     /// `enter` binds a new session to `harness` at `cwd`.
     pub fn call(
         &mut self,

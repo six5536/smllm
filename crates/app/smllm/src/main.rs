@@ -4,20 +4,20 @@
 // the stable toolchain used for normal builds and tests.
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 #![warn(missing_docs)]
+// The wasm's size rules of clippy.toml cover only the crates the wasm links.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod cache;
 mod cli;
 mod commands;
 mod error;
 mod host;
+mod load_cache;
 mod man;
 mod output;
 mod paths;
 mod runtime;
 mod store;
-#[cfg(test)]
-mod test_support;
-
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
@@ -75,6 +75,7 @@ fn run() -> Result<u8> {
     }
 }
 
+// sokf-implements: CLI-10_AC-1
 /// Write a shell completion script for `shell` to stdout.
 fn completions(args: &CompletionsArgs) -> Result<u8> {
     let mut cmd = Cli::command();
@@ -86,4 +87,24 @@ fn completions(args: &CompletionsArgs) -> Result<u8> {
     clap_complete::generate(args.shell, &mut cmd, name, &mut buf);
     agent_harness_adapter_core::cli::write_stdout(&buf).map_err(output::stdout_err)?;
     Ok(output::EXIT_OK)
+}
+
+/// Helpers for the unit tests. They live in this file, not in a file of
+/// their own, because the public export leaves out the test-only files and
+/// keeps this one.
+#[cfg(test)]
+mod test_support {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    /// A fresh, empty temporary directory, unique per call and process.
+    pub(crate) fn temp_dir(name: &str) -> PathBuf {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("smllm-{name}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 }

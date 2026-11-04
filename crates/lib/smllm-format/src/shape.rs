@@ -1,87 +1,69 @@
 //! Structural pre-pass: walk the YAML as a generic tree against the format's
 //! shape and report EVERY unknown key, wrong type and unsupported XState
-//! feature, each with its YAML path and line (CFG-2, CFG-14). serde stops at
+//! feature, each with its YAML path and line (FMT-1, FMT-6). serde stops at
 //! the first problem; this pass does not. A key whose value is null (`key:`
 //! or `key: ~`) counts as absent, as in the JSON Schema; [`normalise`]
 //! removes it before serde reads the document.
-// @zen-component: CFG-Source
 
-use std::sync::OnceLock;
-
-use schemars::JsonSchema;
 use serde_json::{Map, Value};
 
-use crate::lower::Checker;
+use crate::lower::{Checker, YPath as P};
 use crate::source::{
     CommandParams, EventMeta, InstanceMeta, MachineFile, MachineMeta, ParamsSchema, PromptParams,
     PropSchema, RefMeta, SharedActionSrc, StateMeta, StateNode, TransitionSrc, VisitsParams,
 };
 
-/// A source type's keys, read from its JSON Schema: the one the serde types
-/// derive, so this walk and the parser can never disagree on a key.
+/// A source type's keys, in the order of its JSON Schema. A test checks each
+/// table against the schema that the serde types derive, so this walk and the
+/// parser can never disagree on a key, and no load builds the schema.
 struct Keys {
-    allowed: Vec<String>,
-    required: Vec<String>,
+    allowed: &'static [&'static str],
+    required: &'static [&'static str],
 }
 
-impl Keys {
-    /// From `T`'s definition in the machine file's schema, built once; a
-    /// type the schema inlines gets its own.
-    fn of<T: JsonSchema>() -> Self {
-        static ROOT: OnceLock<schemars::Schema> = OnceLock::new();
-        let root = ROOT.get_or_init(|| schemars::schema_for!(MachineFile));
-        let own;
-        let v = match root
-            .get("$defs")
-            .and_then(|d| d.get(T::schema_name().as_ref()))
-        {
-            Some(v) => v,
-            None if T::schema_name() == MachineFile::schema_name() => root.as_value(),
-            None => {
-                own = schemars::schema_for!(T);
-                own.as_value()
-            }
-        };
-        let names = |key: &str| -> Vec<String> {
-            match v.get(key) {
-                Some(Value::Object(m)) => m.keys().cloned().collect(),
-                Some(Value::Array(a)) => a
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect(),
-                _ => Vec::new(),
-            }
-        };
-        Keys {
-            allowed: names("properties"),
-            required: names("required"),
+/// The [`Keys`] of a source type.
+trait SourceKeys {
+    const KEYS: Keys;
+}
+
+macro_rules! source_keys {
+    ($($t:ty => [$($a:literal),*], [$($r:literal),*];)*) => {$(
+        impl SourceKeys for $t {
+            const KEYS: Keys = Keys { allowed: &[$($a),*], required: &[$($r),*] };
         }
-    }
+    )*};
 }
 
-/// The [`Keys`] of a source type, computed once.
+source_keys! {
+    CommandParams => ["run", "timeoutSecs", "cwd"], ["run"];
+    EventMeta => ["description", "params"], [];
+    InstanceMeta => ["kind", "ref"], [];
+    MachineFile => ["id", "description", "initial", "meta", "states"], ["id", "initial", "meta", "states"];
+    MachineMeta => ["smllm", "instance", "events", "sharedActions"], ["smllm"];
+    ParamsSchema => ["type", "properties", "required"], ["type"];
+    PromptParams => ["text", "file"], [];
+    PropSchema => ["type", "description", "enum", "pattern"], ["type"];
+    RefMeta => ["param", "description", "pattern"], [];
+    SharedActionSrc => ["states", "position", "entry", "exit"], ["states", "position"];
+    StateMeta => ["entryPoint", "fallback", "paramDescriptions"], [];
+    StateNode => ["description", "type", "meta", "entry", "exit", "on", "always"], [];
+    TransitionSrc => ["target", "guard", "actions", "reenter", "description"], [];
+    VisitsParams => ["state", "atLeast"], ["state", "atLeast"];
+}
+
+/// The [`Keys`] of a source type.
 macro_rules! keys {
-    ($t:ty) => {{
-        static KEYS: OnceLock<Keys> = OnceLock::new();
-        KEYS.get_or_init(Keys::of::<$t>)
-    }};
+    ($t:ty) => {
+        &<$t as SourceKeys>::KEYS
+    };
 }
 
 /// XState keys smllm v1 does not support: an error with a v1 hint.
-// @zen-impl: CFG-2_AC-1
+// sokf-implements: FMT-1_AC-2
 const UNSUPPORTED: [&str; 11] = [
     "states", "initial", "invoke", "after", "context", "output", "tags", "history", "onDone",
     "types", "version",
 ];
-
-type Path = Vec<String>;
-
-fn at(path: &[String], seg: impl Into<String>) -> Path {
-    let mut p = path.to_vec();
-    p.push(seg.into());
-    p
-}
 
 fn kind(v: &Value) -> &'static str {
     match v {
@@ -99,16 +81,16 @@ struct Walk<'c, 'a> {
 }
 
 impl Walk<'_, '_> {
-    fn err(&mut self, path: &[String], msg: String, hint: Option<&str>, rule: &'static str) {
+    fn err(&mut self, path: &P<'_>, msg: String, hint: Option<&str>, rule: &'static str) {
         self.c.error(path, msg, hint, rule);
     }
 
-    fn wrong(&mut self, path: &[String], want: &str, got: &Value) {
+    fn wrong(&mut self, path: &P<'_>, want: &str, got: &Value) {
         self.err(
             path,
             format!("expected {want}, found {}", kind(got)),
             None,
-            "CFG-1",
+            "FMT-1",
         );
     }
 
@@ -116,7 +98,7 @@ impl Walk<'_, '_> {
     /// the caller to walk its values.
     fn map<'v, S: AsRef<str>>(
         &mut self,
-        path: &[String],
+        path: &P<'_>,
         v: &'v Value,
         allowed: &[S],
         required: &[S],
@@ -131,14 +113,14 @@ impl Walk<'_, '_> {
             }
             if UNSUPPORTED.contains(&k.as_str()) {
                 self.err(
-                    &at(path, k),
+                    &path.key(k),
                     format!("`{k}` is not supported"),
                     Some("smllm supports only part of XState: flat atomic and final states, without delays, invocations, or context"),
-                    "CFG-2",
+                    "FMT-1",
                 );
             } else {
                 self.err(
-                    &at(path, k),
+                    &path.key(k),
                     format!(
                         "unknown key `{k}` (expected one of: {})",
                         allowed
@@ -148,20 +130,20 @@ impl Walk<'_, '_> {
                             .join(", ")
                     ),
                     None,
-                    "CFG-1",
+                    "FMT-1",
                 );
             }
         }
         for r in required {
             let r = r.as_ref();
             if m.get(r).is_none_or(Value::is_null) {
-                self.err(path, format!("missing key `{r}`"), None, "CFG-1");
+                self.err(path, format!("missing key `{r}`"), None, "FMT-1");
             }
         }
         Some(m)
     }
 
-    fn string(&mut self, path: &[String], v: Option<&Value>) {
+    fn string(&mut self, path: &P<'_>, v: Option<&Value>) {
         if let Some(v) = present(v)
             && !v.is_string()
         {
@@ -169,19 +151,19 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn strings(&mut self, path: &[String], v: Option<&Value>) {
+    fn strings(&mut self, path: &P<'_>, v: Option<&Value>) {
         match present(v) {
             None => {}
             Some(Value::Array(items)) => {
                 for (i, it) in items.iter().enumerate() {
-                    self.string(&at(path, format!("[{i}]")), Some(it));
+                    self.string(&path.index(i), Some(it));
                 }
             }
             Some(v) => self.wrong(path, "a list of strings", v),
         }
     }
 
-    fn boolean(&mut self, path: &[String], v: Option<&Value>) {
+    fn boolean(&mut self, path: &P<'_>, v: Option<&Value>) {
         if let Some(v) = present(v)
             && !v.is_boolean()
         {
@@ -189,7 +171,7 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn uint(&mut self, path: &[String], v: Option<&Value>) {
+    fn uint(&mut self, path: &P<'_>, v: Option<&Value>) {
         if let Some(v) = present(v)
             && !v.is_u64()
         {
@@ -197,7 +179,7 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn one_of(&mut self, path: &[String], v: Option<&Value>, values: &[&str], rule: &'static str) {
+    fn one_of(&mut self, path: &P<'_>, v: Option<&Value>, values: &[&str], rule: &'static str) {
         match present(v) {
             None => {}
             Some(Value::String(s)) if values.contains(&s.as_str()) => {}
@@ -211,10 +193,10 @@ impl Walk<'_, '_> {
         }
     }
 
-    fn each<'v>(&mut self, path: &[String], v: Option<&'v Value>) -> Vec<(Path, &'v Value)> {
+    fn each<'b>(&mut self, path: &'b P<'b>, v: Option<&'b Value>) -> Vec<(P<'b>, &'b Value)> {
         match present(v) {
             None => Vec::new(),
-            Some(Value::Object(m)) => m.iter().map(|(k, v)| (at(path, k), v)).collect(),
+            Some(Value::Object(m)) => m.iter().map(|(k, v)| (path.key(k), v)).collect(),
             Some(v) => {
                 self.wrong(path, "a map", v);
                 Vec::new()
@@ -223,51 +205,51 @@ impl Walk<'_, '_> {
     }
 
     fn machine(&mut self, v: &Value) {
-        let root = Vec::new();
+        let root = P::ROOT;
         let k = keys!(MachineFile);
-        let Some(m) = self.map(&root, v, &k.allowed, &k.required) else {
+        let Some(m) = self.map(&root, v, k.allowed, k.required) else {
             return;
         };
         for k in ["id", "description", "initial"] {
-            self.string(&at(&root, k), m.get(k));
+            self.string(&root.key(k), m.get(k));
         }
         if let Some(meta) = present(m.get("meta")) {
             self.meta(meta);
         }
-        for (p, s) in self.each(&at(&root, "states"), m.get("states")) {
+        for (p, s) in self.each(&root.key("states"), m.get("states")) {
             self.state(&p, s);
         }
     }
 
     fn meta(&mut self, v: &Value) {
-        let p = vec!["meta".to_string()];
+        let p = P::ROOT.key("meta");
         let k = keys!(MachineMeta);
-        let Some(m) = self.map(&p, v, &k.allowed, &k.required) else {
+        let Some(m) = self.map(&p, v, k.allowed, k.required) else {
             return;
         };
-        self.uint(&at(&p, "smllm"), m.get("smllm"));
+        self.uint(&p.key("smllm"), m.get("smllm"));
         if let Some(i) = present(m.get("instance")) {
-            let ip = at(&p, "instance");
+            let ip = p.key("instance");
             let k = keys!(InstanceMeta);
-            if let Some(im) = self.map(&ip, i, &k.allowed, &k.required) {
-                self.string(&at(&ip, "kind"), im.get("kind"));
+            if let Some(im) = self.map(&ip, i, k.allowed, k.required) {
+                self.string(&ip.key("kind"), im.get("kind"));
                 if let Some(r) = present(im.get("ref")) {
-                    let rp = at(&ip, "ref");
+                    let rp = ip.key("ref");
                     let k = keys!(RefMeta);
-                    if let Some(rm) = self.map(&rp, r, &k.allowed, &k.required) {
+                    if let Some(rm) = self.map(&rp, r, k.allowed, k.required) {
                         for k in ["param", "description", "pattern"] {
-                            self.string(&at(&rp, k), rm.get(k));
+                            self.string(&rp.key(k), rm.get(k));
                         }
                     }
                 }
             }
         }
-        for (ep, e) in self.each(&at(&p, "events"), m.get("events")) {
+        for (ep, e) in self.each(&p.key("events"), m.get("events")) {
             let k = keys!(EventMeta);
-            if let Some(em) = self.map(&ep, e, &k.allowed, &k.required) {
-                self.string(&at(&ep, "description"), em.get("description"));
+            if let Some(em) = self.map(&ep, e, k.allowed, k.required) {
+                self.string(&ep.key("description"), em.get("description"));
                 if let Some(ps) = present(em.get("params")) {
-                    self.params(&at(&ep, "params"), ps);
+                    self.params(&ep.key("params"), ps);
                 }
             }
         }
@@ -275,69 +257,70 @@ impl Walk<'_, '_> {
             None => {}
             Some(Value::Array(items)) => {
                 for (i, it) in items.iter().enumerate() {
-                    let sp = at(&at(&p, "sharedActions"), format!("[{i}]"));
+                    let sa = p.key("sharedActions");
+                    let sp = sa.index(i);
                     let k = keys!(SharedActionSrc);
-                    if let Some(sm) = self.map(&sp, it, &k.allowed, &k.required) {
-                        self.strings(&at(&sp, "states"), sm.get("states"));
+                    if let Some(sm) = self.map(&sp, it, k.allowed, k.required) {
+                        self.strings(&sp.key("states"), sm.get("states"));
                         self.one_of(
-                            &at(&sp, "position"),
+                            &sp.key("position"),
                             sm.get("position"),
                             &["before", "after"],
-                            "CFG-11",
+                            "AGT-6",
                         );
                         for k in ["entry", "exit"] {
-                            self.actions(&at(&sp, k), sm.get(k));
+                            self.actions(&sp.key(k), sm.get(k));
                         }
                     }
                 }
             }
-            Some(v) => self.wrong(&at(&p, "sharedActions"), "a list", v),
+            Some(v) => self.wrong(&p.key("sharedActions"), "a list", v),
         }
     }
 
-    fn params(&mut self, p: &[String], v: &Value) {
+    fn params(&mut self, p: &P<'_>, v: &Value) {
         let k = keys!(ParamsSchema);
-        let Some(m) = self.map(p, v, &k.allowed, &k.required) else {
+        let Some(m) = self.map(p, v, k.allowed, k.required) else {
             return;
         };
-        self.string(&at(p, "type"), m.get("type"));
-        self.strings(&at(p, "required"), m.get("required"));
-        for (pp, prop) in self.each(&at(p, "properties"), m.get("properties")) {
+        self.string(&p.key("type"), m.get("type"));
+        self.strings(&p.key("required"), m.get("required"));
+        for (pp, prop) in self.each(&p.key("properties"), m.get("properties")) {
             let k = keys!(PropSchema);
-            if let Some(pm) = self.map(&pp, prop, &k.allowed, &k.required) {
+            if let Some(pm) = self.map(&pp, prop, k.allowed, k.required) {
                 for k in ["type", "description", "pattern"] {
-                    self.string(&at(&pp, k), pm.get(k));
+                    self.string(&pp.key(k), pm.get(k));
                 }
-                self.strings(&at(&pp, "enum"), pm.get("enum"));
+                self.strings(&pp.key("enum"), pm.get("enum"));
             }
         }
     }
 
-    fn state(&mut self, p: &[String], v: &Value) {
+    fn state(&mut self, p: &P<'_>, v: &Value) {
         let k = keys!(StateNode);
-        let Some(m) = self.map(p, v, &k.allowed, &k.required) else {
+        let Some(m) = self.map(p, v, k.allowed, k.required) else {
             return;
         };
-        self.string(&at(p, "description"), m.get("description"));
+        self.string(&p.key("description"), m.get("description"));
         match m.get("type") {
             Some(Value::String(t)) if matches!(t.as_str(), "parallel" | "history" | "compound") => {
                 self.err(
-                    &at(p, "type"),
+                    &p.key("type"),
                     format!("`type: {t}` is not supported"),
                     Some("smllm supports only flat atomic and final states"),
-                    "CFG-2",
+                    "FMT-1",
                 )
             }
-            other => self.one_of(&at(p, "type"), other, &["atomic", "final"], "CFG-12"),
+            other => self.one_of(&p.key("type"), other, &["atomic", "final"], "FMT-2"),
         }
         if let Some(meta) = present(m.get("meta")) {
-            let mp = at(p, "meta");
+            let mp = p.key("meta");
             let k = keys!(StateMeta);
-            if let Some(mm) = self.map(&mp, meta, &k.allowed, &k.required) {
-                self.boolean(&at(&mp, "entryPoint"), mm.get("entryPoint"));
-                self.boolean(&at(&mp, "fallback"), mm.get("fallback"));
+            if let Some(mm) = self.map(&mp, meta, k.allowed, k.required) {
+                self.boolean(&mp.key("entryPoint"), mm.get("entryPoint"));
+                self.boolean(&mp.key("fallback"), mm.get("fallback"));
                 for (ep, prompts) in
-                    self.each(&at(&mp, "paramDescriptions"), mm.get("paramDescriptions"))
+                    self.each(&mp.key("paramDescriptions"), mm.get("paramDescriptions"))
                 {
                     for (pp, text) in self.each(&ep, Some(prompts)) {
                         self.string(&pp, Some(text));
@@ -346,66 +329,66 @@ impl Walk<'_, '_> {
             }
         }
         for k in ["entry", "exit"] {
-            self.actions(&at(p, k), m.get(k));
+            self.actions(&p.key(k), m.get(k));
         }
-        for (ep, ts) in self.each(&at(p, "on"), m.get("on")) {
+        for (ep, ts) in self.each(&p.key("on"), m.get("on")) {
             self.transitions(&ep, ts);
         }
         if let Some(ts) = present(m.get("always")) {
-            self.transitions(&at(p, "always"), ts);
+            self.transitions(&p.key("always"), ts);
         }
     }
 
-    fn transitions(&mut self, p: &[String], v: &Value) {
+    fn transitions(&mut self, p: &P<'_>, v: &Value) {
         match v {
             Value::Array(items) if items.len() == 1 => self.transition(p, &items[0]),
             Value::Array(items) => {
                 for (i, it) in items.iter().enumerate() {
-                    self.transition(&at(p, format!("[{i}]")), it);
+                    self.transition(&p.index(i), it);
                 }
             }
             v => self.transition(p, v),
         }
     }
 
-    fn transition(&mut self, p: &[String], v: &Value) {
+    fn transition(&mut self, p: &P<'_>, v: &Value) {
         if v.is_string() {
             return;
         }
         let k = keys!(TransitionSrc);
-        let Some(m) = self.map(p, v, &k.allowed, &k.required) else {
+        let Some(m) = self.map(p, v, k.allowed, k.required) else {
             return;
         };
-        self.string(&at(p, "target"), m.get("target"));
-        self.string(&at(p, "description"), m.get("description"));
-        self.boolean(&at(p, "reenter"), m.get("reenter"));
-        self.actions(&at(p, "actions"), m.get("actions"));
+        self.string(&p.key("target"), m.get("target"));
+        self.string(&p.key("description"), m.get("description"));
+        self.boolean(&p.key("reenter"), m.get("reenter"));
+        self.actions(&p.key("actions"), m.get("actions"));
         if let Some(g) = present(m.get("guard")) {
-            self.guard(&at(p, "guard"), g);
+            self.guard(&p.key("guard"), g);
         }
     }
 
-    fn actions(&mut self, p: &[String], v: Option<&Value>) {
+    fn actions(&mut self, p: &P<'_>, v: Option<&Value>) {
         match present(v) {
             None => {}
             Some(Value::Array(items)) if items.len() == 1 => self.action(p, &items[0]),
             Some(Value::Array(items)) => {
                 for (i, it) in items.iter().enumerate() {
-                    self.action(&at(p, format!("[{i}]")), it);
+                    self.action(&p.index(i), it);
                 }
             }
             Some(v) => self.action(p, v),
         }
     }
 
-    fn action(&mut self, p: &[String], v: &Value) {
+    fn action(&mut self, p: &P<'_>, v: &Value) {
         if let Value::String(s) = v {
             if s != "setRef" {
                 self.err(
                     p,
                     format!("unknown action `{s}`"),
                     Some("write an action as {type, params}; only setRef can be a bare name"),
-                    "CFG-4",
+                    "FMT-3",
                 );
             }
             return;
@@ -414,11 +397,11 @@ impl Walk<'_, '_> {
             return;
         };
         let params = present(m.get("params"));
-        let pp = at(p, "params");
+        let pp = p.key("params");
         match m.get("type").and_then(Value::as_str) {
             Some("prompt") => {
                 let k = keys!(PromptParams);
-                self.keys(&pp, params, &k.allowed, &k.required, |w, k, v| {
+                self.keys(&pp, params, k.allowed, k.required, |w, k, v| {
                     w.string(k, Some(v))
                 });
                 let given = ["text", "file"]
@@ -430,33 +413,33 @@ impl Walk<'_, '_> {
                         &pp,
                         "a prompt needs exactly one of: text, file".to_string(),
                         None,
-                        "CFG-4",
+                        "FMT-3",
                     );
                 }
             }
             Some("command") => self.command(&pp, params),
             Some("setRef") => self.keys::<&str>(&pp, params, &[], &[], |_, _, _| {}),
             Some(t) => self.err(
-                &at(p, "type"),
+                &p.key("type"),
                 format!("unknown action type `{t}` (expected one of: prompt, command, setRef)"),
                 None,
-                "CFG-4",
+                "FMT-3",
             ),
             None => self.wrong(
-                &at(p, "type"),
+                &p.key("type"),
                 "a string",
                 m.get("type").unwrap_or(&Value::Null),
             ),
         }
     }
 
-    fn guard(&mut self, p: &[String], v: &Value) {
+    fn guard(&mut self, p: &P<'_>, v: &Value) {
         if v.is_string() {
             self.err(
                 p,
                 "a guard is a map {type, params}, not a name".to_string(),
                 Some("guard types: command { run }, visits { state, atLeast }"),
-                "CFG-5",
+                "FMT-3",
             );
             return;
         }
@@ -464,14 +447,14 @@ impl Walk<'_, '_> {
             return;
         };
         let params = present(m.get("params"));
-        let pp = at(p, "params");
+        let pp = p.key("params");
         match m.get("type").and_then(Value::as_str) {
             Some("command") => self.command(&pp, params),
             Some("visits") => self.keys(
                 &pp,
                 params,
-                &keys!(VisitsParams).allowed,
-                &keys!(VisitsParams).required,
+                keys!(VisitsParams).allowed,
+                keys!(VisitsParams).required,
                 |w, k, v| {
                     if k.last().is_some_and(|l| l == "atLeast") {
                         w.uint(k, Some(v));
@@ -481,36 +464,34 @@ impl Walk<'_, '_> {
                 },
             ),
             Some(t) => self.err(
-                &at(p, "type"),
+                &p.key("type"),
                 format!("unknown guard type `{t}` (expected one of: command, visits)"),
                 None,
-                "CFG-5",
+                "FMT-3",
             ),
             None => self.wrong(
-                &at(p, "type"),
+                &p.key("type"),
                 "a string",
                 m.get("type").unwrap_or(&Value::Null),
             ),
         }
     }
 
-    fn command(&mut self, p: &[String], params: Option<&Value>) {
+    fn command(&mut self, p: &P<'_>, params: Option<&Value>) {
         let k = keys!(CommandParams);
-        self.keys(p, params, &k.allowed, &k.required, |w, k, v| {
-            match k.last().map(String::as_str) {
-                Some("run") => match v {
-                    Value::String(_) => {}
-                    Value::Array(items) if items.iter().all(Value::is_string) => {}
-                    _ => w.err(
-                        k,
-                        "run must be a string (shell) or a list of strings (no shell)".to_string(),
-                        None,
-                        "DEC-4",
-                    ),
-                },
-                Some("timeoutSecs") => w.uint(k, Some(v)),
-                _ => w.string(k, Some(v)),
-            }
+        self.keys(p, params, k.allowed, k.required, |w, k, v| match k.last() {
+            Some("run") => match v {
+                Value::String(_) => {}
+                Value::Array(items) if items.iter().all(Value::is_string) => {}
+                _ => w.err(
+                    k,
+                    "run must be a string (shell) or a list of strings (no shell)".to_string(),
+                    None,
+                    "CLI-11",
+                ),
+            },
+            Some("timeoutSecs") => w.uint(k, Some(v)),
+            _ => w.string(k, Some(v)),
         });
     }
 
@@ -518,11 +499,11 @@ impl Walk<'_, '_> {
     /// required), each value checked by `check`.
     fn keys<S: AsRef<str>>(
         &mut self,
-        p: &[String],
+        p: &P<'_>,
         params: Option<&Value>,
         allowed: &[S],
         required: &[S],
-        check: impl Fn(&mut Self, &[String], &Value),
+        check: impl Fn(&mut Self, &P<'_>, &Value),
     ) {
         let empty = Value::Object(Map::new());
         let Some(m) = self.map(p, params.unwrap_or(&empty), allowed, required) else {
@@ -530,7 +511,7 @@ impl Walk<'_, '_> {
         };
         for (k, v) in m {
             if allowed.iter().any(|a| a.as_ref() == k) && !v.is_null() {
-                check(self, &at(p, k), v);
+                check(self, &p.key(k), v);
             }
         }
     }
@@ -564,5 +545,73 @@ pub(crate) fn normalise(doc: &mut Value) {
         }
         Value::Array(items) => items.iter_mut().for_each(normalise),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use schemars::JsonSchema;
+    use serde_json::Value;
+
+    use super::*;
+
+    /// `T`'s keys as its definition in the machine file's schema gives them,
+    /// or its own schema for a type that the schema inlines.
+    fn schema_keys<T: JsonSchema>() -> (Vec<String>, Vec<String>) {
+        let root = schemars::schema_for!(MachineFile);
+        let own = schemars::schema_for!(T);
+        let v = match root
+            .get("$defs")
+            .and_then(|d| d.get(T::schema_name().as_ref()))
+        {
+            Some(v) => v,
+            None if T::schema_name() == MachineFile::schema_name() => root.as_value(),
+            None => own.as_value(),
+        };
+        let names = |key: &str| -> Vec<String> {
+            match v.get(key) {
+                Some(Value::Object(m)) => m.keys().cloned().collect(),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect(),
+                _ => Vec::new(),
+            }
+        };
+        (names("properties"), names("required"))
+    }
+
+    // sokf-tests: FMT-1_AC-1
+    #[test]
+    fn key_tables_match_the_schema() {
+        macro_rules! check {
+            ($($t:ty),*) => {$(
+                let k = keys!($t);
+                let owned = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+                assert_eq!(
+                    (owned(k.allowed), owned(k.required)),
+                    schema_keys::<$t>(),
+                    "the key table of {} differs from its JSON Schema",
+                    stringify!($t)
+                );
+            )*};
+        }
+        check!(
+            CommandParams,
+            EventMeta,
+            InstanceMeta,
+            MachineFile,
+            MachineMeta,
+            ParamsSchema,
+            PromptParams,
+            PropSchema,
+            RefMeta,
+            SharedActionSrc,
+            StateMeta,
+            StateNode,
+            TransitionSrc,
+            VisitsParams
+        );
     }
 }

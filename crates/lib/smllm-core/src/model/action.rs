@@ -1,5 +1,4 @@
-//! Guards and actions, XState-style `{type, params}` (CFG-4, CFG-5).
-// @zen-component: ENG-Model
+//! Guards and actions, XState-style `{type, params}` (FMT-3, FMT-3).
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -40,7 +39,7 @@ impl Value {
 }
 
 /// A guard on a transition.
-// @zen-impl: DEC-3_AC-1
+// sokf-implements: AGT-6_AC-1
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -89,9 +88,9 @@ pub enum Prompt {
     serde(rename_all = "camelCase")
 )]
 pub enum ActionDef {
-    /// Text for the agent, gathered into `<instructions>` (ACT-2).
+    /// Text for the agent, gathered into `<instructions>` (AGT-6).
     Prompt(Prompt),
-    /// Set the instance's ref from the event's ref param (INST-3).
+    /// Set the instance's ref from the event's ref param (AGT-10).
     SetRef,
     /// A kind the host runs (`command`).
     Host {

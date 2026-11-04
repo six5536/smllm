@@ -1,6 +1,5 @@
 //! The validated, lowered state machine model the engine runs. `smllm-format`
 //! builds it from YAML; `smllm compile` serialises it for wasm hosts.
-// @zen-component: ENG-Model
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -45,11 +44,11 @@ pub struct Machine {
     pub description: Option<String>,
     /// Where a new instance starts.
     pub initial: String,
-    /// Instance vocabulary (CFG-6).
+    /// Instance vocabulary (FMT-4).
     pub instance: InstanceSpec,
-    /// Declared event types (CFG-7), including guidance overrides for built-ins.
+    /// Declared event types (FMT-4), including guidance overrides for built-ins.
     pub events: SmallMap<EventDef>,
-    /// `meta.sharedActions` (CFG-11).
+    /// `meta.sharedActions` (AGT-6).
     pub shared: Vec<SharedAction>,
     /// States, in file order.
     pub states: Vec<State>,
@@ -61,7 +60,7 @@ impl Machine {
         self.states.iter().find(|s| s.name == name)
     }
 
-    /// The `meta.fallback` state, if any (IDLE-2).
+    /// The `meta.fallback` state, if any (AGT-7).
     pub fn fallback(&self) -> Option<&State> {
         self.states.iter().find(|s| s.fallback)
     }
@@ -82,7 +81,7 @@ impl Machine {
     }
 }
 
-/// `meta.instance`: what an instance is called and its ref param (CFG-6).
+/// `meta.instance`: what an instance is called and its ref param (FMT-4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -111,7 +110,7 @@ impl Default for InstanceSpec {
     }
 }
 
-/// An event type from `meta.events` (CFG-7).
+/// An event type from `meta.events` (FMT-4).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -132,7 +131,7 @@ impl EventDef {
     }
 }
 
-/// One string param (JSON Schema subset, CFG-7).
+/// One string param (JSON Schema subset, FMT-4).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -166,7 +165,7 @@ pub enum Position {
     After,
 }
 
-/// One `meta.sharedActions` entry (CFG-11).
+/// One `meta.sharedActions` entry (AGT-6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -210,7 +209,7 @@ pub struct State {
     pub on: Vec<On>,
     /// `always` (eventless) transitions.
     pub always: Vec<Transition>,
-    /// `meta.paramDescriptions`: event → param → prompt (CFG-8).
+    /// `meta.paramDescriptions`: event → param → prompt (FMT-4).
     pub param_descriptions: SmallMap<SmallMap<String>>,
 }
 
@@ -231,12 +230,12 @@ impl State {
 pub struct On {
     /// Event name.
     pub event: String,
-    /// Candidates, first match wins (DEC-1).
+    /// Candidates, first match wins (AGT-5).
     pub transitions: Vec<Transition>,
 }
 
 impl On {
-    /// Per-state guidance: the first transition `description` (CFG-8).
+    /// Per-state guidance: the first transition `description` (FMT-4).
     pub fn description(&self) -> Option<&str> {
         self.transitions
             .iter()

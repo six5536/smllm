@@ -1,8 +1,7 @@
-// Node file storage (HOST-14): a file per record, written
+// Node file storage (WASM-2): a file per record, written
 // atomically (temp file, then rename), and history as JSONL, one line per
 // entry in the CLI's format. One process owns a folder: several processes
 // sharing state should use the CLI, whose store locks.
-// @zen-component: HOST-JsPackage
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

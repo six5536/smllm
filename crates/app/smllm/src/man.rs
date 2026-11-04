@@ -11,6 +11,7 @@ use clap::CommandFactory;
 
 use crate::cli::Cli;
 
+// sokf-implements: CLI-10_AC-1
 /// Render the complete man page as roff.
 pub fn render() -> std::io::Result<Vec<u8>> {
     let man = clap_mangen::Man::new(Cli::command());
@@ -121,7 +122,8 @@ fn render_files(out: &mut String) {
          .TP\n.I .smllm/config.toml\nThe project config. It lists the state machine files and can add text to the idle list.\n\
          .TP\n.I ~/.config/smllm/config.toml\nThe user config. smllm loads it with the project config.\n\
          .TP\n.I .smllm/state/\nThe instances and their history. By default, each config keeps them in a state directory beside it.\n\
-         .TP\n.I ~/.local/state/smllm/\nThe sessions, and the harness sessions bound to them.\n",
+         .TP\n.I ~/.local/state/smllm/\nThe sessions, and the harness sessions bound to them.\n\
+         .TP\n.I ~/.cache/smllm/\nA copy of each load of the configs, which smllm reads while no config, machine or prompt file has changed. It is safe to delete.\n",
     );
 }
 

@@ -1,6 +1,5 @@
-//! `smllm mcp`: the stdio MCP server with the one `smllm` tool (D3, HOST-5,
-//! HOST-12, CLI-9).
-// @zen-component: HOST-Mcp
+//! `smllm mcp`: the stdio MCP server with the one `smllm` tool (D3, MCP-1,
+//! AGT-4, MCP-1).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,21 +20,21 @@ use crate::output::EXIT_OK;
 use crate::paths;
 use crate::runtime::Runtime;
 
-/// The tool's name (the core's, HOST-13).
+/// The tool's name (the core's, WASM-1).
 pub const TOOL: &str = smllm_core::TOOL_NAME;
 
-/// The tool description: the core's, with the full agent rules (HOST-12).
+/// The tool description: the core's, with the full agent rules (AGT-4).
 pub fn description() -> String {
     smllm_core::tool_description()
 }
 
-/// The tool's input schema: the core's (CFG-16, HOST-13).
+/// The tool's input schema: the core's (MCP-1, WASM-1).
 pub fn input_schema() -> Map<String, Value> {
     serde_json::from_str(smllm_core::TOOL_INPUT_SCHEMA).unwrap_or_default()
 }
 
 /// Serve one tool call: `(ok, text)`.
-// @zen-impl: CFG-16_AC-1
+// sokf-implements: MCP-1_AC-3
 pub fn call(
     args: &Map<String, Value>,
     cwd: &std::path::Path,
@@ -48,6 +47,7 @@ pub fn call(
     }
 }
 
+// sokf-implements: MCP-1_AC-2
 fn call_inner(
     args: &Map<String, Value>,
     cwd: &std::path::Path,
@@ -75,7 +75,7 @@ fn call_inner(
         }
         Some(_) => return Err(Error::msg("params must be an object of strings")),
     }
-    // The loaded config outlives the call; it is checked each call (HOST-16).
+    // The loaded config outlives the call; it is checked each call (MCP-1).
     let files = Runtime::call_configs(session.as_deref(), explicit, cwd)?;
     let rt = cache.runtime(&files)?;
     let reply = rt.call("mcp", session.as_deref(), event.as_deref(), &params, cwd)?;
@@ -87,8 +87,8 @@ struct Server {
     cwd: Arc<PathBuf>,
     explicit: Option<Arc<PathBuf>>,
     /// Held for each tool call: the client may pipeline calls, and two calls
-    /// on one session must not interleave their reads and writes (STO-3).
-    /// It guards the loaded configs too (HOST-16).
+    /// on one session must not interleave their reads and writes (STORE-3).
+    /// It guards the loaded configs too (MCP-1).
     calls: Arc<Mutex<ConfigCache>>,
 }
 
@@ -153,7 +153,7 @@ impl ServerHandler for Server {
 }
 
 /// `smllm mcp`.
-// @zen-impl: CLI-9_AC-1
+// sokf-implements: MCP-1_AC-1
 pub fn serve(explicit: Option<&std::path::Path>) -> Result<u8> {
     let cwd = paths::cwd()?;
     let _ = paths::user_state_dir()?;

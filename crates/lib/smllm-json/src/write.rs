@@ -17,6 +17,7 @@ pub fn to_string<T: ToJson + ?Sized>(value: &T) -> String {
     out
 }
 
+// sokf-implements: JSON-3_AC-1
 /// A JSON string, escaped as serde_json does: `"` and `\`, the short forms
 /// `\b \t \n \f \r`, other control characters as lowercase `\u00xx`;
 /// everything else (DEL and non-ASCII included) as is.
@@ -64,6 +65,7 @@ pub fn object(out: &mut String) -> ObjectWriter<'_> {
 }
 
 impl ObjectWriter<'_> {
+    // sokf-implements: JSON-3_AC-2
     /// Add the field `key`.
     pub fn field(&mut self, key: &str, value: &dyn ToJson) -> &mut Self {
         if !self.first {
@@ -117,6 +119,7 @@ impl<T: ToJson + ?Sized> ToJson for &T {
     }
 }
 
+// sokf-implements: JSON-3_AC-3
 impl<T: ToJson> ToJson for Option<T> {
     fn write_json(&self, out: &mut String) {
         match self {
@@ -126,6 +129,7 @@ impl<T: ToJson> ToJson for Option<T> {
     }
 }
 
+// sokf-implements: JSON-3_AC-2
 impl<T: ToJson> ToJson for [T] {
     fn write_json(&self, out: &mut String) {
         out.push('[');

@@ -1,6 +1,5 @@
-// In-memory storage (HOST-14): what `nodeFileStorage` does with files,
+// In-memory storage (WASM-2): what `nodeFileStorage` does with files,
 // without them; for tests, examples and hosts that persist elsewhere.
-// @zen-component: HOST-JsPackage
 
 import type { HistoryEntry, RecordKind, State, Storage } from "./types.js";
 

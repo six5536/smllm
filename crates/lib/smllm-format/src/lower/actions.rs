@@ -1,5 +1,4 @@
-//! Lower `{type, params}` actions and guards (CFG-4, CFG-5, DEC-4..7).
-// @zen-component: CFG-Lower
+//! Lower `{type, params}` actions and guards (FMT-3, FMT-3, CLI-11..7).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -8,10 +7,10 @@ use smllm_core::SmallMap;
 use smllm_core::model::{ActionDef, GuardDef, Prompt, Value};
 
 use crate::load::Mode;
-use crate::lower::checker::Checker;
+use crate::lower::checker::{Checker, YPath};
 use crate::source::{ActionSrc, Actions, CommandParams, GuardSrc, Run, StringOr};
 
-/// Fences the agent text must not contain (TURN-12).
+/// Fences the agent text must not contain (AGT-1).
 const FENCES: [&str; 3] = ["</smllm>", "</instructions>", "</events>"];
 
 /// Where prompt files live, and what the load does with them.
@@ -22,7 +21,7 @@ pub(crate) struct Files<'a> {
     /// checked once.
     found: RefCell<Vec<PathBuf>>,
     /// Every prompt file the load read or checked, found or not: the result
-    /// depends on them (a cached load is stale when one changes, HOST-16).
+    /// depends on them (a cached load is stale when one changes, MCP-1).
     probed: RefCell<Vec<PathBuf>>,
     /// In [`Mode::Inline`], the machine file's folder relative to the
     /// compiled file, `/`-separated (`""` when they are one folder): a
@@ -102,27 +101,27 @@ impl<'a> Files<'a> {
     }
 }
 
-/// Warn when author text contains smllm's fences (TURN-12).
-// @zen-impl: TURN-12_AC-2
-pub(crate) fn check_fences(c: &mut Checker<'_>, path: &[String], text: &str) {
+/// Warn when author text contains smllm's fences (AGT-1).
+// sokf-implements: FMT-3_AC-3
+pub(crate) fn check_fences(c: &mut Checker<'_>, path: &YPath<'_>, text: &str) {
     for f in FENCES {
         if text.contains(f) {
             c.warning(
                 path,
                 format!("text contains `{f}`, which smllm uses to fence agent text"),
                 Some("reword it so the agent can tell smllm's text from yours"),
-                "TURN-12",
+                "AGT-1",
             );
         }
     }
 }
 
 /// Lower an action list. `set_ref_ok`: only transition actions of `on`.
-// @zen-impl: CFG-4_AC-1
+// sokf-implements: FMT-3_AC-1
 pub(crate) fn lower_actions(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     src: Option<&Actions>,
     set_ref_ok: bool,
 ) -> Vec<ActionDef> {
@@ -130,36 +129,34 @@ pub(crate) fn lower_actions(
     let many = src.0.len() > 1;
     let mut out = Vec::new();
     for (i, a) in src.0.iter().enumerate() {
-        let mut p = path.to_vec();
-        if many {
-            p.push(format!("[{i}]"));
-        }
+        let item = path.index(i);
+        let p = if many { &item } else { path };
         let lowered = match a {
             StringOr::Str(s) if s == "setRef" => Some(ActionDef::SetRef),
             StringOr::Str(s) => {
                 c.error(
-                    &p,
+                    p,
                     format!("unknown action `{s}`"),
                     Some("write an action as {type, params}; only setRef can be a bare name"),
-                    "CFG-4",
+                    "FMT-3",
                 );
                 None
             }
             StringOr::Obj(ActionSrc::SetRef) => Some(ActionDef::SetRef),
             StringOr::Obj(ActionSrc::Prompt(pp)) => {
-                lower_prompt(c, files, &p, pp.text.as_deref(), pp.file.as_deref())
+                lower_prompt(c, files, p, pp.text.as_deref(), pp.file.as_deref())
             }
             StringOr::Obj(ActionSrc::Command(cp)) => Some(ActionDef::Host {
                 kind: "command".to_string(),
-                params: lower_command(c, files, &p, cp),
+                params: lower_command(c, files, p, cp),
             }),
         };
         if matches!(lowered, Some(ActionDef::SetRef)) && !set_ref_ok {
             c.error(
-                &p,
+                p,
                 "setRef runs only in a transition's actions under `on`".to_string(),
                 Some("entry, exit, and always have no event to read the ref param from"),
-                "CFG-4",
+                "FMT-3",
             );
             continue;
         }
@@ -173,7 +170,7 @@ pub(crate) fn lower_actions(
 pub(crate) fn lower_prompt(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     text: Option<&str>,
     file: Option<&str>,
 ) -> Option<ActionDef> {
@@ -199,7 +196,7 @@ pub(crate) fn lower_prompt(
                         path,
                         format!("prompt file {f}: {e}"),
                         Some("the path is relative to the file that gives it"),
-                        "CFG-4",
+                        "FMT-3",
                     );
                     None
                 }
@@ -210,7 +207,7 @@ pub(crate) fn lower_prompt(
                 path,
                 "a prompt needs exactly one of: text, file".to_string(),
                 None,
-                "CFG-4",
+                "FMT-3",
             );
             None
         }
@@ -218,11 +215,11 @@ pub(crate) fn lower_prompt(
 }
 
 /// The implied `enter-<STATE>.md` prompt, when the file exists or at request
-/// time (CFG-4 default).
+/// time (FMT-3 default).
 pub(crate) fn default_prompt(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     state: &str,
 ) -> Option<ActionDef> {
     let full = files.dir.join(format!("enter-{state}.md"));
@@ -250,14 +247,14 @@ pub(crate) fn default_prompt(
 fn lower_command(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     cp: &CommandParams,
 ) -> SmallMap<Value> {
     let mut params = SmallMap::new();
     match &cp.run {
         Run::Shell(s) => {
             if s.trim().is_empty() {
-                c.error(path, "command run is empty".to_string(), None, "DEC-4");
+                c.error(path, "command run is empty".to_string(), None, "CLI-11");
             }
             params.insert("run", Value::Str(s.clone()));
         }
@@ -267,7 +264,7 @@ fn lower_command(
                     path,
                     "command run is an empty list".to_string(),
                     None,
-                    "DEC-4",
+                    "CLI-11",
                 );
             }
             if argv.iter().any(|a| a.contains("$SMLLM_")) {
@@ -275,7 +272,7 @@ fn lower_command(
                     path,
                     "a list-form run gets no shell, so nothing expands $SMLLM_*".to_string(),
                     Some("use the string form, or read the environment in a script"),
-                    "DEC-9",
+                    "CLI-11",
                 );
             }
             params.insert("run", Value::List(argv.clone()));
@@ -287,7 +284,7 @@ fn lower_command(
                 path,
                 "timeoutSecs must be at least 1".to_string(),
                 None,
-                "DEC-5",
+                "CLI-11",
             );
         }
         params.insert("timeoutSecs", Value::Int(t.min(i64::MAX as u64) as i64));
@@ -306,12 +303,12 @@ fn lower_command(
     params
 }
 
-/// Lower a guard (CFG-5); `states` for checking `visits`.
-// @zen-impl: CFG-5_AC-1
+/// Lower a guard (FMT-3); `states` for checking `visits`.
+// sokf-implements: FMT-3_AC-2
 pub(crate) fn lower_guard(
     c: &mut Checker<'_>,
     files: &Files<'_>,
-    path: &[String],
+    path: &YPath<'_>,
     g: &GuardSrc,
     states: &[&str],
 ) -> Option<GuardDef> {
@@ -326,7 +323,7 @@ pub(crate) fn lower_guard(
                     path,
                     format!("visits counts unknown state {}", v.state),
                     None,
-                    "CFG-5",
+                    "FMT-3",
                 );
             }
             if v.at_least == 0 {
@@ -334,7 +331,7 @@ pub(crate) fn lower_guard(
                     path,
                     "visits atLeast 0 is always true".to_string(),
                     None,
-                    "CFG-5",
+                    "FMT-3",
                 );
             }
             Some(GuardDef::Visits {

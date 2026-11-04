@@ -55,6 +55,7 @@ impl Error {
         self.within(&format!("[{index}]"))
     }
 
+    // sokf-implements: JSON-4_AC-1
     fn within(mut self, outer: &str) -> Self {
         let path = &mut self.0.path;
         let sep = if path.is_empty() || path.starts_with('[') {
@@ -67,6 +68,7 @@ impl Error {
     }
 }
 
+// sokf-implements: JSON-4_AC-2
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.path().is_empty() {

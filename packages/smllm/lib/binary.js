@@ -34,6 +34,7 @@ function binaryName(platform) {
  */
 function resolveBinary(platform, arch, requireResolve = require.resolve) {
   const pkg = selectPackage(platform, arch);
+  // sokf-implements: LNCH-1_AC-5
   if (!pkg) {
     throw new Error(
       `No prebuilt smllm binary for ${platform}-${arch}.\n` +
@@ -41,6 +42,7 @@ function resolveBinary(platform, arch, requireResolve = require.resolve) {
         `Install from source instead: cargo install smllm`,
     );
   }
+  // sokf-implements: LNCH-1_AC-6
   try {
     return requireResolve(`${pkg}/bin/${binaryName(platform)}`);
   } catch {
@@ -60,6 +62,9 @@ function resolveBinary(platform, arch, requireResolve = require.resolve) {
  * than a misleading 1. `signals` is injected for testability and defaults to
  * Node's own table.
  */
+// sokf-implements: LNCH-1_AC-2
+// sokf-implements: LNCH-1_AC-3
+// sokf-implements: LNCH-1_AC-4
 function exitCode(result, signals = require("node:os").constants.signals) {
   if (result.signal) {
     const signum = signals[result.signal];

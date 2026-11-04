@@ -1,0 +1,4 @@
+# Every text file is checked out with LF line breaks, on Windows too: the
+# binary embeds some files, `smllm compile` inlines prompt files, and the
+# tests compare both with LF snapshots.
+* text=auto eol=lf

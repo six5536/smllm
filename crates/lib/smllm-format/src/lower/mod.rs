@@ -7,5 +7,5 @@ mod graph;
 mod machine;
 
 pub(crate) use actions::{Files, lower_prompt};
-pub(crate) use checker::Checker;
+pub(crate) use checker::{Checker, YPath};
 pub(crate) use machine::lower;

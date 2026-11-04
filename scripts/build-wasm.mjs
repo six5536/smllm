@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Build packages/smllm-wasm: cargo (release, wasm32, std rebuilt for size on
-// a pinned nightly) → wasm-bindgen (web + bundler targets) → wasm-opt -Oz;
-// print the .wasm size (NFR-8). Also regenerates the smoke test's compiled
+// Build packages/smllm-wasm: cargo (the wasm profile, for size; wasm32; std
+// rebuilt for size on a pinned nightly) → wasm-bindgen (web + bundler targets) → wasm-opt -Oz;
+// print the .wasm size (WASM-7). Also regenerates the smoke test's compiled
 // machines from examples/dev, and the wasm example's (examples/wasm).
 //
 // Needs rustup (the script installs NIGHTLY with rust-src and the wasm32
@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-// NFR-8: about 15% over the size measured when smllm-json replaced serde_json
+// WASM-7: about 15% over the size measured when smllm-json replaced serde_json
 // in the wasm (116.0 KiB).
 const BUDGET = 134 * 1024;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -39,27 +39,33 @@ const rustflags = [
   `--remap-path-prefix=${rustSrc}=/rustc/${commit}`,
   "-Zunstable-options",
   "-Cpanic=immediate-abort",
+  // A panic is a bare trap, so nothing reads its file and line: dropping
+  // them leaves no source path in the binary and saves about 150 bytes gzipped.
+  "-Zlocation-detail=none",
 ];
 // prettier-ignore
 run("cargo", [
-  `+${NIGHTLY}`, "build", "--release", "--locked", "-p", "smllm-wasm", "--target", "wasm32-unknown-unknown",
+  `+${NIGHTLY}`, "build", "--profile", "wasm", "--locked", "-p", "smllm-wasm", "--target", "wasm32-unknown-unknown",
   "-Zbuild-std=std,panic_abort", "-Zbuild-std-features=optimize_for_size",
 ], {
   CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f"),
 });
-const raw = join(root, "target/wasm32-unknown-unknown/release/smllm_wasm.wasm");
+const raw = join(root, "target/wasm32-unknown-unknown/wasm/smllm_wasm.wasm");
 for (const target of ["web", "bundler"]) {
   const out = join(pkg, "wasm", target);
   rmSync(out, { recursive: true, force: true });
   run("wasm-bindgen", ["--target", target, "--out-dir", out, raw]);
   const wasm = join(out, "smllm_wasm_bg.wasm");
   // The producers and target-features sections name the toolchain; nothing reads them.
-  run(join(root, "node_modules/.bin/wasm-opt"), ["-Oz", "--strip-producers", "--strip-target-features", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext", "--enable-mutable-globals", "-o", wasm, wasm]);
+  // --converge repeats the passes while they still shrink the file: about
+  // 160 bytes gzipped.
+  run(join(root, "node_modules/.bin/wasm-opt"), ["-Oz", "--converge", "--strip-producers", "--strip-target-features", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext", "--enable-mutable-globals", "-o", wasm, wasm]);
   if (target === "web") {
     const bytes = statSync(wasm).size;
     console.log(`smllm_wasm_bg.wasm: ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB, budget ${BUDGET / 1024} KiB)`);
+    // sokf-tests: WASM-5_AC-1
     if (bytes > BUDGET) {
-      console.error(`error: smllm_wasm_bg.wasm is over its ${BUDGET / 1024} KiB budget (NFR-8)`);
+      console.error(`error: smllm_wasm_bg.wasm is over its ${BUDGET / 1024} KiB budget (WASM-7)`);
       process.exit(1);
     }
     const text = readFileSync(wasm, "latin1");

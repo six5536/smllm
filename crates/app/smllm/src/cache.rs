@@ -1,11 +1,10 @@
 //! The MCP server's loaded configs, kept between calls
-//! (HOST-16). Each call checks the files a load depended on, the way git checks
+//! (MCP-1). Each call checks the files a load depended on, the way git checks
 //! its index ("racy git"): a file whose size or modification time changed is
 //! read and compared; so is one whose time is not clearly older than the load,
 //! since an edit within the same timestamp tick would look unchanged; one that
 //! was missing is looked for again. Any difference rebuilds. Everything else
 //! is trusted, so after a tick a call reads no config file.
-// @zen-component: HOST-Mcp
 
 use std::fs;
 use std::path::PathBuf;
@@ -37,6 +36,7 @@ impl Seen {
     }
 
     /// Whether the file is as the load saw it.
+    // sokf-implements: MCP-1_AC-4
     fn unchanged(&mut self, built: SystemTime) -> bool {
         let meta = fs::metadata(&self.path)
             .ok()
@@ -139,7 +139,7 @@ mod tests {
             .unwrap();
     }
 
-    // @zen-test: HOST-16_AC-1
+    // sokf-tests: MCP-1_AC-4
     #[test]
     fn a_changed_input_reloads_even_within_a_tick() {
         let d = crate::test_support::temp_dir("cache");

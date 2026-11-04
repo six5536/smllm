@@ -4,7 +4,7 @@
 // the exit codes. Release CI runs it against each built artifact its runner can
 // execute; locally run `npm run smoke` after `cargo build --release -p smllm`.
 //
-// This deliberately mirrors crates/app/smllm/tests/cli.rs: those tests prove the
+// This deliberately mirrors crates/app/smllm/tests/it/cli.rs: those tests prove the
 // code is right, this proves the *shipped artifact* is. Extend both together.
 
 import { spawnSync } from "node:child_process";

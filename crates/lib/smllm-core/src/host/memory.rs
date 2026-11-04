@@ -1,7 +1,6 @@
 //! An in-memory [`Store`], for tests and `smllm-wasm` (which hands each saved
 //! record to its JS host). Two indexes, derived from the instances and never
 //! saved, answer lookups without scanning or cloning every instance.
-// @zen-component: ENG-Host
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -36,7 +35,7 @@ pub struct MemoryStore {
     /// `machine\0status\0updated\0label\0id` → nothing, `updated` as 16
     /// hex digits: a machine's instances of one status are a contiguous run,
     /// by `updated`, then label, so a count is its length and the newest are
-    /// its last groups (IDLE-7's order without a sort, however many tie).
+    /// its last groups (AGT-9's order without a sort, however many tie).
     #[cfg_attr(feature = "serde", serde(skip))]
     by_status: SmallMap<()>,
 }
@@ -73,13 +72,19 @@ fn status_prefix(machine: &str, status: Status) -> String {
 }
 
 fn status_key(i: &Instance) -> String {
-    format!(
-        "{}{:016x}\0{}\0{}",
-        status_prefix(&i.machine, i.status),
-        i.updated,
-        i.label(),
-        i.id
-    )
+    let mut key = status_prefix(&i.machine, i.status);
+    // `updated` as 16 hex digits, written by hand: `{:016x}` brings the
+    // formatter's hex code into the wasm.
+    for shift in (0..16).rev() {
+        key.push(char::from(
+            b"0123456789abcdef"[(i.updated >> (shift * 4)) as usize & 15],
+        ));
+    }
+    key.push('\0');
+    key.push_str(i.label());
+    key.push('\0');
+    key.push_str(&i.id);
+    key
 }
 
 /// A status key's `updated` group, after its prefix: 16 digits and `\0`.
@@ -87,7 +92,9 @@ const TIME_LEN: usize = 17;
 
 /// The id at the end of a status key.
 fn id_of(key: &str) -> &str {
-    key.rsplit('\0').next().unwrap_or_default()
+    // A byte search: `rsplit('\0')` brings in the char searcher.
+    let start = key.bytes().rposition(|b| b == 0).map_or(0, |n| n + 1);
+    &key[start..]
 }
 
 impl MemoryStore {
@@ -252,7 +259,7 @@ impl Store for MemoryStore {
         Ok(out)
     }
 
-    /// The version rule (INST-8), and one ref per machine (INST-3): a ref new
+    /// The version rule (AGT-10), and one ref per machine (AGT-10): a ref new
     /// to the instance that another instance of the machine holds, or that is
     /// another instance's id, is a conflict, as in the file store.
     fn put_instance(&mut self, instance: &Instance) -> Result<(), HostError> {

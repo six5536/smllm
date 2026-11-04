@@ -1,12 +1,11 @@
-// The Node command host (HOST-15): `command` guards
-// and actions run as the CLI runs them (DEC-4..DEC-7). Host methods are
+// The Node command host (WASM-3): `command` guards
+// and actions run as the CLI runs them (CLI-11..CLI-11). Host methods are
 // synchronous, so commands run with `spawnSync`. On unix the command is
 // started detached, as the leader of its own process group, and a timeout
 // kills that whole group, so what the command started dies with it; its
 // output goes to a file, not a pipe, so a process it leaves running cannot
 // hold the call open. On Windows the command's own process is killed, as the
 // CLI does.
-// @zen-component: HOST-JsPackage
 
 import { type SpawnSyncOptions, spawnSync } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
@@ -15,7 +14,7 @@ import { join, resolve } from "node:path";
 
 import type { Host } from "../types.js";
 
-/** `timeoutSecs` default (DEC-5), as the CLI's. */
+/** `timeoutSecs` default (CLI-11), as the CLI's. */
 export const DEFAULT_TIMEOUT_SECS = 60;
 const TAIL_CHARS = 400;
 
@@ -28,6 +27,7 @@ function tail(text: string): string {
 }
 
 /** A command's failure text, `""` when it passed. */
+// sokf-implements: WASM-3_AC-1
 function runCommand(
   params: Record<string, unknown>,
   env: Record<string, string>,

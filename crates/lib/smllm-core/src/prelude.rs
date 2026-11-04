@@ -1,5 +1,5 @@
 //! The `alloc` names the crate uses everywhere. `no_std` has no std prelude, so
-//! every module imports this instead (see `.zen/rules/rust-rules.md`).
+//! every module imports this instead (the Rust coding standard of the knowledge store).
 
 #![allow(unused_imports)] // a prelude: not every module needs every name
 

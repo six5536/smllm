@@ -175,7 +175,8 @@ prints exactly one object.
 
 smllm reads `.smllm/config.toml` in the project and combines it with
 `~/.config/smllm/config.toml`. When both define the same state machine ID, the project's wins.
-Instances live in `.smllm/state/`, which is git-ignored. Sessions live in `~/.local/state/smllm/`.
+Instances live in `.smllm/state/`, which is git-ignored. Sessions live in `~/.local/state/smllm/`,
+and a copy of each load of your machines, which is safe to delete, lives in `~/.cache/smllm/`.
 
 ## Project layout
 

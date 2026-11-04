@@ -19,7 +19,7 @@ export interface Reply {
   text: string;
 }
 
-/** The stop hook's decision (TURN-4..6). */
+/** The stop hook's decision (AGT-8..6). */
 export type StopDecision =
   | { decision: "allow" }
   /** `block`: hold the agent and show it `text`; `runaway`: let it stop, show `text` to the user. */
@@ -87,7 +87,7 @@ export interface Host {
 export type RecordKind = "session" | "binding" | "instance";
 
 /**
- * Where an engine's state lives (HOST-14): `load` once, into `importState`;
+ * Where an engine's state lives (WASM-2): `load` once, into `importState`;
  * then each saved record through `put` and each history entry through
  * `history`, as they happen, so persisting costs what changed.
  */

@@ -1,15 +1,14 @@
 //! Offered events and their params: what the menu shows and what a call is
-//! checked against (ENG-1, TURN-2, IDLE).
-// @zen-component: ENG-Offers
+//! checked against (AGT-2, AGT-2, IDLE).
 
 use crate::host::Matcher;
 use crate::model::{Config, EventDef, Machine, ParamSpec, State};
 use crate::prelude::*;
 use crate::record::Instance;
-use crate::utils::join;
+use crate::utils::{join, join_with};
 
-/// Built-in event names (IDLE-1).
-/// `listPaused` is offered only in idle, when its list was cut short (IDLE-7).
+/// Built-in event names (AGT-2).
+/// `listPaused` is offered only in idle, when its list was cut short (AGT-9).
 pub const BUILTINS: [&str; 6] = [
     "enter",
     "resume",
@@ -57,8 +56,8 @@ impl ParamView {
     }
 }
 
-/// Guidance for a built-in: the machine's override, else `default` (IDLE-1).
-// @zen-impl: IDLE-1_AC-1
+/// Guidance for a built-in: the machine's override, else `default` (AGT-2).
+// sokf-implements: AGT-2_AC-3
 fn builtin_description(machine: Option<&Machine>, name: &str, default: String) -> Option<String> {
     machine
         .and_then(|m| m.events.get(name))
@@ -67,8 +66,9 @@ fn builtin_description(machine: Option<&Machine>, name: &str, default: String) -
 }
 
 /// Events offered in a machine state: its `on` events, then the built-ins
-/// (ENG-1). `state` is `None` when the saved state no longer exists (IDLE-3).
-// @zen-impl: ENG-1_AC-1
+/// (AGT-2). `state` is `None` when the saved state no longer exists (AGT-11).
+// sokf-implements: AGT-2_AC-1
+// sokf-implements: AGT-10_AC-8
 pub(crate) fn machine_offers(
     machine: &Machine,
     state: Option<&State>,
@@ -153,7 +153,8 @@ pub(crate) fn machine_offers(
 
 /// Events offered in idle: `enter`, `resume` when an instance is
 /// interrupted, and `listPaused` when the idle list left some of `paused`
-/// out (IDLE-7).
+/// out (AGT-9).
+// sokf-implements: AGT-10_AC-8
 pub(crate) fn idle_offers(
     config: &Config,
     interrupted: Option<(&Machine, &Instance)>,
@@ -177,7 +178,7 @@ pub(crate) fn idle_offers(
                 ..ParamView::default()
             },
             ParamView {
-                name: ref_params.join(" | "),
+                name: join_with(&mut ref_params.iter().copied(), " | "),
                 description: Some(
                     "The id param shown for the state machine above: an existing id or ref \
                      continues that instance, and a new ref starts one with it. Omit it to \
@@ -230,9 +231,9 @@ pub(crate) fn idle_offers(
     offers
 }
 
-/// Check `given` against an offer's params (CFG-16, TURN-3). Returns the
+/// Check `given` against an offer's params (MCP-1, AGT-3). Returns the
 /// params in declaration order, or the error message.
-// @zen-impl: TURN-3_AC-1
+// sokf-implements: AGT-3_AC-3
 pub(crate) fn check_params(
     offer: &Offer,
     given: &[(String, String)],
@@ -273,7 +274,7 @@ pub(crate) fn check_value(
         return Err(format!(
             "{event} param {} must be one of: {} (got \"{value}\")",
             p.name,
-            p.enum_values.join(", ")
+            join(p.enum_values.iter().map(String::as_str))
         ));
     }
     if let Some(pat) = &p.pattern {

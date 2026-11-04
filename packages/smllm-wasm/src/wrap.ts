@@ -99,13 +99,14 @@ export class Engine {
         }
       : host;
     this.#raw = new Raw(json, adapt(all));
+    // sokf-implements: WASM-2_AC-2
     const saved = storage?.load();
     if (saved) {
       this.importState(saved);
     }
   }
 
-  /** The agent-facing tool, to hand to an LLM's tool list (HOST-13). */
+  /** The agent-facing tool, to hand to an LLM's tool list (WASM-1). */
   tool(): Tool {
     return parse(this.#raw.tool());
   }

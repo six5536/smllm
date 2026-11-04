@@ -1,5 +1,4 @@
-//! What a host supplies: the core has no IO, time or randomness (NFR-1).
-// @zen-component: ENG-Host
+//! What a host supplies: the core has no IO, time or randomness (ENG-5).
 
 use crate::model::Value;
 use crate::prelude::*;
@@ -9,7 +8,7 @@ use crate::utils::{SmallMap, merge_sort_by};
 /// A store failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostError {
-    /// Another writer changed the instance first (INST-8).
+    /// Another writer changed the instance first (AGT-10).
     Conflict,
     /// Anything else, as a message.
     Other(String),
@@ -45,7 +44,7 @@ pub trait Store {
     fn instances(&mut self, machine: &str) -> Result<Vec<Instance>, HostError>;
     /// The instances of `machine` with `status`. The default filters
     /// [`Store::instances`]; a store that keeps completed instances apart
-    /// answers without reading them (INST-9 keeps them forever).
+    /// answers without reading them (AGT-10 keeps them forever).
     fn instances_with(
         &mut self,
         machine: &str,
@@ -55,7 +54,7 @@ pub trait Store {
         all.retain(|i| i.status == status);
         Ok(all)
     }
-    /// The instance of `machine` whose ref is `r#ref` (INST-4). The default
+    /// The instance of `machine` whose ref is `r#ref` (AGT-10). The default
     /// searches [`Store::instances`]; a store may keep an index.
     fn instance_by_ref(
         &mut self,
@@ -74,7 +73,7 @@ pub trait Store {
         Ok(self.instances_with(machine, status)?.len())
     }
     /// The `limit` most recently updated instances of `machine` with
-    /// `status`, newest first, ties by label (IDLE-7). The default sorts
+    /// `status`, newest first, ties by label (AGT-9). The default sorts
     /// [`Store::instances_with`]; a store may read only the newest.
     fn recent(
         &mut self,
@@ -100,7 +99,7 @@ pub trait Store {
 }
 
 /// Order instances most recently updated first, ties by machine, then
-/// label: the idle list's order across machines (IDLE-7), and within one
+/// label: the idle list's order across machines (AGT-9), and within one
 /// machine the order of [`Store::recent`].
 pub fn newest_first(instances: &mut Vec<Instance>) {
     merge_sort_by(instances, |a, b| {
@@ -119,9 +118,9 @@ pub struct Call<'a> {
     pub kind: &'a str,
     /// `params`.
     pub params: &'a SmallMap<Value>,
-    /// Environment (DEC-6, ACT-4).
+    /// Environment (ENG-4, CLI-11).
     pub env: &'a [(String, String)],
-    /// The session's working dir (DEC-7).
+    /// The session's working dir (CLI-11).
     pub cwd: &'a str,
 }
 
@@ -130,13 +129,13 @@ pub struct Call<'a> {
 pub struct Outcome {
     /// Guard: true. Action: succeeded.
     pub ok: bool,
-    /// Exit status, reason and output tail, for the trace (DEC-8).
+    /// Exit status, reason and output tail, for the trace (AGT-1).
     pub detail: String,
 }
 
 /// Host guard kinds (`command`).
 pub trait Guard {
-    /// Whether this host evaluates `kind` (NFR-9).
+    /// Whether this host evaluates `kind` (ENG-4).
     fn supports(&self, kind: &str) -> bool;
     /// Evaluate a guard.
     fn check(&mut self, call: &Call<'_>) -> Outcome;
@@ -144,7 +143,7 @@ pub trait Guard {
 
 /// Host action kinds (`command`).
 pub trait Action {
-    /// Whether this host runs `kind` (ACT-6).
+    /// Whether this host runs `kind` (ENG-4).
     fn supports(&self, kind: &str) -> bool;
     /// Run an action.
     fn run(&mut self, call: &Call<'_>) -> Outcome;

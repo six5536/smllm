@@ -1,5 +1,4 @@
 //! Command-line interface (clap derive), consistent with sokf's (CLI).
-// @zen-component: CLI-Commands
 
 use std::path::PathBuf;
 

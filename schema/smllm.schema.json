@@ -1,0 +1,746 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "smllm state machine",
+  "description": "An XState v5 machine config in YAML, limited to the parts that smllm supports. smllm's own data is under `meta`.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "The machine's id, unique within the config: letters, digits, `_`, and `-`.",
+      "type": "string"
+    },
+    "description": {
+      "description": "The machine's description, which the idle list shows.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "initial": {
+      "description": "The state in which a new instance starts.",
+      "type": "string"
+    },
+    "meta": {
+      "description": "smllm's data for the machine.",
+      "$ref": "#/$defs/MachineMeta"
+    },
+    "states": {
+      "description": "The machine's states. smllm does not support nested `states`.",
+      "$ref": "#/$defs/Map_of_StateNode"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "initial",
+    "meta",
+    "states"
+  ],
+  "$defs": {
+    "MachineMeta": {
+      "description": "smllm's data for the machine.",
+      "type": "object",
+      "properties": {
+        "smllm": {
+          "description": "The smllm format version, which is 1.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "instance": {
+          "description": "What the machine calls an instance, and the instance's ref.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstanceMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "description": "The machine's events, each declared once. A built-in event can set only its `description`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Map_of_EventMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sharedActions": {
+          "description": "Actions added to the `entry` or `exit` actions of several states.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SharedActionSrc"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "smllm"
+      ]
+    },
+    "InstanceMeta": {
+      "description": "`meta.instance`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "The word for an instance in the text that smllm writes, such as `issue`. The default is `instance`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "ref": {
+          "description": "The instance's ref: its id outside smllm, such as an issue number.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RefMeta": {
+      "description": "`meta.instance.ref`.",
+      "type": "object",
+      "properties": {
+        "param": {
+          "description": "The name of the ref's param, which `enter` and `setRef` use. The default is `ref`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "description": {
+          "description": "The prompt that asks for the ref.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "pattern": {
+          "description": "A pattern that the ref must match, in the syntax of a param's `pattern`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "Map_of_EventMeta": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/EventMeta"
+      }
+    },
+    "EventMeta": {
+      "description": "`meta.events.<name>`.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "The event's guidance for the agent, unless a transition gives its own.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "params": {
+          "description": "The event's params: a JSON Schema object of string properties.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParamsSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ParamsSchema": {
+      "description": "A subset of a JSON Schema of `type: object`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Always `object`.",
+          "type": "string"
+        },
+        "properties": {
+          "description": "The params, by name.",
+          "$ref": "#/$defs/Map_of_PropSchema"
+        },
+        "required": {
+          "description": "The names of the required params.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ]
+    },
+    "Map_of_PropSchema": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PropSchema"
+      }
+    },
+    "PropSchema": {
+      "description": "One param's schema.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Always `string`.",
+          "type": "string"
+        },
+        "description": {
+          "description": "The prompt for the param.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "enum": {
+          "description": "The allowed values.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "pattern": {
+          "description": "A pattern that the value must match, in Rust `regex` syntax: the common\nsubset of JSON Schema's ECMA-262 patterns, without lookaround or\nbackreferences. In smllm, `\\d`, `\\w`, and `\\s` match Unicode, and in a\nJavaScript host they match only ASCII. To match ASCII digits in both, write\n`[0-9]`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ]
+    },
+    "SharedActionSrc": {
+      "description": "One `meta.sharedActions` entry.",
+      "type": "object",
+      "properties": {
+        "states": {
+          "description": "The states that the actions are added to.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "position": {
+          "description": "Whether the actions run before or after the state's own `entry` or `exit` actions.",
+          "$ref": "#/$defs/PositionSrc"
+        },
+        "entry": {
+          "description": "Actions added to each state's `entry`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_ActionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit": {
+          "description": "Actions added to each state's `exit`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_ActionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "states",
+        "position"
+      ]
+    },
+    "PositionSrc": {
+      "description": "Before or after a state's own actions.",
+      "oneOf": [
+        {
+          "description": "Before the state's own actions.",
+          "type": "string",
+          "const": "before"
+        },
+        {
+          "description": "After the state's own actions.",
+          "type": "string",
+          "const": "after"
+        }
+      ]
+    },
+    "OneOrMany_StringOr_ActionSrc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StringOr_ActionSrc"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StringOr_ActionSrc"
+          }
+        }
+      ]
+    },
+    "StringOr_ActionSrc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/ActionSrc"
+        }
+      ]
+    },
+    "ActionSrc": {
+      "description": "An action, written as `{type, params}`.",
+      "oneOf": [
+        {
+          "description": "Shows text to the agent.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "prompt"
+            },
+            "params": {
+              "$ref": "#/$defs/PromptParams"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Runs a command.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "command"
+            },
+            "params": {
+              "$ref": "#/$defs/CommandParams"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Sets the instance's ref from the event's ref param.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "setRef"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PromptParams": {
+      "description": "The params of `prompt`, which takes exactly one of `text` and `file`.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "description": "The text itself.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "file": {
+          "description": "A file of text, relative to the machine file, which smllm reads each time it shows the prompt.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "CommandParams": {
+      "description": "The params of `command`.",
+      "type": "object",
+      "properties": {
+        "run": {
+          "description": "A string that a shell runs, or a list of a program and its arguments, run without a shell.",
+          "$ref": "#/$defs/Run"
+        },
+        "timeoutSecs": {
+          "description": "The time limit in seconds. The default is 60.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        },
+        "cwd": {
+          "description": "The working directory, relative to the machine file. The default is the session's working directory.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "run"
+      ]
+    },
+    "Run": {
+      "description": "A command: a string that a shell runs, or a list of a program and its arguments, run without a shell.",
+      "anyOf": [
+        {
+          "description": "A string that `sh -c` runs, or `cmd /C` on Windows.",
+          "type": "string"
+        },
+        {
+          "description": "A program and its arguments, run without a shell.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "Map_of_StateNode": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/StateNode"
+      }
+    },
+    "StateNode": {
+      "description": "One state.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "The state's description.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "type": {
+          "description": "The state's type. A `final` state completes the instance.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "meta": {
+          "description": "smllm's data for the state.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entry": {
+          "description": "The actions that run when the state is entered. Without a prompt among\nthem, smllm shows the prompt file `enter-<STATE>.md`, if it exists.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_ActionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit": {
+          "description": "The actions that run when the state is left.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_ActionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "on": {
+          "description": "The transitions for each event.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Map_of_OneOrMany_StringOr_TransitionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "always": {
+          "description": "Transitions without an event. smllm leaves a state with `always` at once.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_TransitionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "StateType": {
+      "description": "State `type`.",
+      "oneOf": [
+        {
+          "description": "An ordinary state, the default.",
+          "type": "string",
+          "const": "atomic"
+        },
+        {
+          "description": "A state that completes the instance.",
+          "type": "string",
+          "const": "final"
+        }
+      ]
+    },
+    "StateMeta": {
+      "description": "smllm's data for a state.",
+      "type": "object",
+      "properties": {
+        "entryPoint": {
+          "description": "Whether the agent can enter this state directly from idle.",
+          "type": "boolean",
+          "default": false
+        },
+        "fallback": {
+          "description": "Whether the `unmatched` event enters this state. At most one state of a machine can be the fallback.",
+          "type": "boolean",
+          "default": false
+        },
+        "paramDescriptions": {
+          "description": "Prompts for params in this state, by event and then by param.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Map_of_Map_of_string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "Map_of_Map_of_string": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Map_of_string"
+      }
+    },
+    "Map_of_string": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "Map_of_OneOrMany_StringOr_TransitionSrc": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/OneOrMany_StringOr_TransitionSrc"
+      }
+    },
+    "OneOrMany_StringOr_TransitionSrc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StringOr_TransitionSrc"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StringOr_TransitionSrc"
+          }
+        }
+      ]
+    },
+    "StringOr_TransitionSrc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/TransitionSrc"
+        }
+      ]
+    },
+    "TransitionSrc": {
+      "description": "A transition object.",
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "The target state. A transition without a target stays in the state without re-entering it.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "guard": {
+          "description": "A condition that must pass for the transition to be taken.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actions": {
+          "description": "The actions that run when the transition is taken.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_StringOr_ActionSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reenter": {
+          "description": "Whether a transition to its own state leaves and re-enters it, as in XState.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "description": {
+          "description": "Guidance for the event in this state.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "GuardSrc": {
+      "description": "A guard, written as `{type, params}`.",
+      "oneOf": [
+        {
+          "description": "Passes when the command exits with status 0.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "command"
+            },
+            "params": {
+              "$ref": "#/$defs/CommandParams"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Passes when `state` has been entered at least `atLeast` times.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "visits"
+            },
+            "params": {
+              "$ref": "#/$defs/VisitsParams"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "VisitsParams": {
+      "description": "`visits` params.",
+      "type": "object",
+      "properties": {
+        "state": {
+          "description": "The state whose entries are counted.",
+          "type": "string"
+        },
+        "atLeast": {
+          "description": "The least number of entries, counting the current one.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "atLeast"
+      ]
+    }
+  }
+}

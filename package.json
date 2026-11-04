@@ -1,0 +1,31 @@
+{
+  "name": "@six5536/smllm-workspace",
+  "private": true,
+  "description": "smllm: state machines for LLM agents.",
+  "workspaces": [
+    "packages/smllm",
+    "packages/smllm-wasm"
+  ],
+  "scripts": {
+    "build": "cargo build --workspace",
+    "build:all": "npm run build:linux-x64 && npm run build:linux-arm64 && npm run build:darwin-x64 && npm run build:darwin-arm64",
+    "build:linux-x64": "rustup target add x86_64-unknown-linux-musl && mise exec -- cargo zigbuild --release --target x86_64-unknown-linux-musl -p smllm && install -m 0755 target/x86_64-unknown-linux-musl/release/smllm packages/smllm-linux-x64/bin/smllm",
+    "build:linux-arm64": "rustup target add aarch64-unknown-linux-musl && mise exec -- cargo zigbuild --release --target aarch64-unknown-linux-musl -p smllm && install -m 0755 target/aarch64-unknown-linux-musl/release/smllm packages/smllm-linux-arm64/bin/smllm",
+    "build:darwin-x64": "rustup target add x86_64-apple-darwin && mise exec -- cargo zigbuild --release --target x86_64-apple-darwin -p smllm && install -m 0755 target/x86_64-apple-darwin/release/smllm packages/smllm-darwin-x64/bin/smllm",
+    "build:darwin-arm64": "rustup target add aarch64-apple-darwin && mise exec -- cargo zigbuild --release --target aarch64-apple-darwin -p smllm && install -m 0755 target/aarch64-apple-darwin/release/smllm packages/smllm-darwin-arm64/bin/smllm",
+    "dev": "cargo run -p smllm --",
+    "lint": "cargo clippy --workspace",
+    "fmt": "cargo fmt --all",
+    "smoke": "node scripts/release-smoke.mjs",
+    "smoke:launcher": "node scripts/launcher-smoke.mjs",
+    "verify-version": "node scripts/verify-version.mjs",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "test:example": "tsc -p examples/wasm && node examples/wasm/node.ts",
+    "install:local": "CARGO_BUILD_JOBS=4 cargo install --quiet --locked --path crates/app/smllm"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "binaryen": "^132.0.0",
+    "typescript": "^7.0.2"
+  }
+}

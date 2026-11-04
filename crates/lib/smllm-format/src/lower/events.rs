@@ -1,0 +1,271 @@
+//! `meta.instance` and `meta.events` (CFG-6, CFG-7, CFG-16, IDLE-1).
+// @zen-component: CFG-Lower
+
+use smllm_core::model::{EventDef, InstanceSpec, ParamSpec};
+use smllm_core::{BUILTINS, SmallMap};
+
+use crate::lower::actions::check_fences;
+use crate::lower::checker::Checker;
+use crate::source::{InstanceMeta, MachineMeta, ParamsSchema};
+use crate::ypath;
+
+/// Names the `enter` event uses itself (CFG-13).
+const ENTER_PARAMS: [&str; 2] = ["stateMachine", "state"];
+
+/// The compiled pattern, or an error finding when it is not a valid regex.
+pub(crate) fn valid_pattern(
+    c: &mut Checker<'_>,
+    path: &[String],
+    pattern: &str,
+) -> Option<regex::Regex> {
+    match regex::Regex::new(pattern) {
+        Ok(re) => Some(re),
+        Err(e) => {
+            let first = e.to_string().lines().last().unwrap_or_default().to_string();
+            c.error(
+                path,
+                format!("invalid pattern {pattern}: {first}"),
+                None,
+                "CFG-7",
+            );
+            None
+        }
+    }
+}
+
+/// `meta.instance` → [`InstanceSpec`] (CFG-6).
+// @zen-impl: CFG-6_AC-1
+pub(crate) fn lower_instance(c: &mut Checker<'_>, src: Option<&InstanceMeta>) -> InstanceSpec {
+    let mut spec = InstanceSpec::default();
+    let Some(src) = src else { return spec };
+    if let Some(n) = &src.kind {
+        check_fences(c, &ypath!["meta", "instance", "kind"], n);
+        spec.kind = n.clone();
+    }
+    if let Some(r) = &src.r#ref {
+        if let Some(p) = &r.param {
+            spec.ref_param = p.clone();
+        }
+        if let Some(d) = &r.description {
+            check_fences(c, &ypath!["meta", "instance", "ref", "description"], d);
+        }
+        spec.ref_description = r.description.clone();
+        if let Some(pat) = &r.pattern
+            && valid_pattern(c, &ypath!["meta", "instance", "ref", "pattern"], pat).is_some()
+        {
+            spec.ref_pattern = Some(pat.clone());
+        }
+    }
+    if ENTER_PARAMS.contains(&spec.ref_param.as_str()) {
+        c.error(
+            &ypath!["meta", "instance", "ref", "param"],
+            format!(
+                "ref param {} has the name of one of enter's own params",
+                spec.ref_param
+            ),
+            Some("choose another name, such as issueId"),
+            "CFG-13",
+        );
+    }
+    if !is_name(&spec.ref_param) {
+        c.error(
+            &ypath!["meta", "instance", "ref", "param"],
+            format!(
+                "ref param {:?} must contain only letters, digits, _, and -",
+                spec.ref_param
+            ),
+            None,
+            "CFG-6",
+        );
+    }
+    spec
+}
+
+pub(crate) fn is_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// `meta.events` → event defs (CFG-7); built-ins may set only guidance (IDLE-1).
+// @zen-impl: CFG-7_AC-1
+// @zen-impl: IDLE-1_AC-1
+pub(crate) fn lower_events(c: &mut Checker<'_>, meta: &MachineMeta) -> SmallMap<EventDef> {
+    let mut out = SmallMap::new();
+    let Some(events) = &meta.events else {
+        return out;
+    };
+    for (name, ev) in events.iter() {
+        let path = ypath!["meta", "events", name];
+        if !is_name(name) {
+            c.error(
+                &path,
+                format!("event name {name:?} must contain only letters, digits, _, and -"),
+                None,
+                "CFG-7",
+            );
+        }
+        if let Some(d) = &ev.description {
+            check_fences(c, &path, d);
+        }
+        if BUILTINS.contains(&name) && ev.params.is_some() {
+            c.error(
+                &path,
+                format!("built-in event {name} can change only its description, not its params"),
+                None,
+                "IDLE-1",
+            );
+        }
+        let params = match &ev.params {
+            Some(schema) if !BUILTINS.contains(&name) => lower_params(c, &path, schema),
+            _ => Vec::new(),
+        };
+        out.insert(
+            name,
+            EventDef {
+                description: ev.description.clone(),
+                params,
+            },
+        );
+    }
+    out
+}
+
+fn lower_params(c: &mut Checker<'_>, path: &[String], schema: &ParamsSchema) -> Vec<ParamSpec> {
+    let mut p = path.to_vec();
+    p.push("params".into());
+    if schema.kind != "object" {
+        c.error(
+            &p,
+            format!("params type must be object, not {}", schema.kind),
+            None,
+            "CFG-7",
+        );
+    }
+    let mut out = Vec::new();
+    for (name, prop) in schema.properties.iter() {
+        let mut pp = p.clone();
+        pp.extend(["properties".to_string(), name.to_string()]);
+        if prop.kind != "string" {
+            c.error(
+                &pp,
+                format!(
+                    "param {name} has type {}, but a param must be a string",
+                    prop.kind
+                ),
+                Some("use type: string, with enum or pattern to limit its values"),
+                "CFG-16",
+            );
+        }
+        if !is_name(name) {
+            c.error(
+                &pp,
+                format!("param name {name:?} must contain only letters, digits, _, and -"),
+                None,
+                "CFG-7",
+            );
+        }
+        if ENTER_PARAMS.contains(&name) {
+            c.warning(
+                &pp,
+                format!("param {name} has the name of one of enter's own params"),
+                None,
+                "CFG-13",
+            );
+        }
+        let enum_values = prop.enum_values.clone().unwrap_or_default();
+        if prop.enum_values.as_ref().is_some_and(Vec::is_empty) {
+            c.error(
+                &pp,
+                "enum is empty, so it allows no value".to_string(),
+                None,
+                "CFG-7",
+            );
+        }
+        if let Some(d) = &prop.description {
+            check_fences(c, &pp, d);
+        }
+        let pattern = prop.pattern.as_ref().filter(|pat| {
+            let mut ppp = pp.clone();
+            ppp.push("pattern".into());
+            let Some(re) = valid_pattern(c, &ppp, pat) else {
+                return false;
+            };
+            for v in enum_values.iter().filter(|v| !re.is_match(v)) {
+                c.warning(
+                    &pp,
+                    format!(
+                        "enum value {v:?} does not match the pattern, so the param can never take it"
+                    ),
+                    None,
+                    "CFG-7",
+                );
+            }
+            true
+        });
+        out.push(ParamSpec {
+            name: name.to_string(),
+            description: prop.description.clone(),
+            required: schema.required.iter().any(|r| r == name),
+            enum_values,
+            pattern: pattern.cloned(),
+        });
+    }
+    for r in &schema.required {
+        if !schema.properties.contains_key(r) {
+            let mut rp = p.clone();
+            rp.push("required".into());
+            c.error(
+                &rp,
+                format!("required param {r} is not in properties"),
+                None,
+                "CFG-7",
+            );
+        }
+    }
+    out
+}
+
+/// A `setRef` transition makes the ref param required on its event (CFG-9).
+// @zen-impl: CFG-9_AC-1
+pub(crate) fn require_ref(
+    c: &mut Checker<'_>,
+    events: &mut SmallMap<EventDef>,
+    event: &str,
+    spec: &InstanceSpec,
+) {
+    let mut def = events.remove(event).unwrap_or_default();
+    match def.params.iter_mut().find(|p| p.name == spec.ref_param) {
+        Some(p) => {
+            p.required = true;
+            // The instance's ref pattern always applies to the ref it sets.
+            if let Some(pat) = &spec.ref_pattern {
+                if p.pattern.as_ref().is_some_and(|own| own != pat) {
+                    c.warning(
+                        &ypath!["meta", "events", event, "params", "properties", spec.ref_param],
+                        format!(
+                            "{event} sets the ref, so meta.instance.ref.pattern {pat} applies instead of this pattern"
+                        ),
+                        Some("remove this pattern, or change meta.instance.ref.pattern"),
+                        "CFG-9",
+                    );
+                }
+                p.pattern = Some(pat.clone());
+            }
+            if p.description.is_none() {
+                p.description = spec.ref_description.clone();
+            }
+        }
+        None => def.params.insert(
+            0,
+            ParamSpec {
+                name: spec.ref_param.clone(),
+                description: spec.ref_description.clone(),
+                required: true,
+                enum_values: Vec::new(),
+                pattern: spec.ref_pattern.clone(),
+            },
+        ),
+    }
+    events.insert(event, def);
+}

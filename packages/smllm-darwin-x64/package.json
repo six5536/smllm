@@ -1,0 +1,34 @@
+{
+  "name": "@six5536/smllm-darwin-x64",
+  "version": "0.4.0",
+  "description": "Prebuilt smllm binary for darwin-x64.",
+  "homepage": "https://github.com/six5536/smllm#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/six5536/smllm.git",
+    "directory": "packages/smllm-darwin-x64"
+  },
+  "bugs": {
+    "url": "https://github.com/six5536/smllm/issues"
+  },
+  "author": "six5536 <10079653+six5536@users.noreply.github.com>",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "cli",
+    "command-line"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "license": "MIT"
+}

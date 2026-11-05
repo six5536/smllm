@@ -79,9 +79,22 @@ pub struct EventMeta {
     /// The event's guidance for the agent, unless a transition gives its own.
     #[serde(default)]
     pub description: Option<String>,
-    /// The event's params: a JSON Schema object of string properties.
+    /// The event's params: a JSON Schema object of string and JSON properties.
     #[serde(default)]
     pub params: Option<ParamsSchema>,
+    /// Who fires the event: `agent`, the default, or `host`. Only the host fires a `host` event, through `fire_as_host`, and the agent never sees it.
+    #[serde(default)]
+    pub source: Option<EventSource>,
+}
+
+/// Who fires an event.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EventSource {
+    /// The agent, through the `smllm` tool or `smllm fire`.
+    Agent,
+    /// Only the host that embeds the engine, through `fire_as_host`.
+    Host,
 }
 
 /// A subset of a JSON Schema of `type: object`.
@@ -103,22 +116,37 @@ pub struct ParamsSchema {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PropSchema {
-    /// Always `string`.
-    #[serde(rename = "type")]
-    pub kind: String,
+    /// `string`, the default, or `json`, for a param that takes any JSON value.
+    #[serde(default, rename = "type")]
+    #[schemars(extend("enum" = ["string", "json", null]))]
+    pub kind: Option<String>,
     /// The prompt for the param.
     #[serde(default)]
     pub description: Option<String>,
-    /// The allowed values.
+    /// The allowed values of a string param.
     #[serde(default, rename = "enum")]
     pub enum_values: Option<Vec<String>>,
-    /// A pattern that the value must match, in Rust `regex` syntax: the common
-    /// subset of JSON Schema's ECMA-262 patterns, without lookaround or
-    /// backreferences. In smllm, `\d`, `\w`, and `\s` match Unicode, and in a
-    /// JavaScript host they match only ASCII. To match ASCII digits in both, write
-    /// `[0-9]`.
+    /// A pattern that a string param's value must match, in Rust `regex`
+    /// syntax: the common subset of JSON Schema's ECMA-262 patterns, without
+    /// lookaround or backreferences. In smllm, `\d`, `\w`, and `\s` match
+    /// Unicode, and in a JavaScript host they match only ASCII. To match ASCII
+    /// digits in both, write `[0-9]`.
     #[serde(default)]
     pub pattern: Option<String>,
+    /// The JSON Schema of a `json` param's value, draft-07 or 2020-12: a path
+    /// relative to the machine file, or the schema itself as a map.
+    #[serde(default)]
+    pub schema: Option<SchemaSrc>,
+}
+
+/// A `json` param's schema.
+#[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SchemaSrc {
+    /// A JSON file, relative to the machine file. The path can lead outside the machine's folder.
+    File(String),
+    /// The schema itself.
+    Inline(serde_json::Map<String, serde_json::Value>),
 }
 
 /// Before or after a state's own actions.

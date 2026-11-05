@@ -109,9 +109,10 @@ fn context() -> Answer {
 /// a new binding from the configs found at the input's `cwd`; allow when
 /// there are none (HARN-3).
 fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<Answer> {
+    // A bound session's bind is its view, recorded in its audit (ENG-11).
     if let Some(s) = &session {
         let mut rt = Runtime::bound(Some(s))?;
-        let reply = rt.with(|e, h| e.view(h, &s.key))?;
+        let reply = rt.bind(harness, input.session_id.as_deref(), &s.cwd)?;
         return Ok(Answer::Context { text: reply.text });
     }
     let cwd = match &input.cwd {
@@ -126,7 +127,7 @@ fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<A
     let reply = rt.bind(
         harness,
         input.session_id.as_deref(),
-        &cwd.display().to_string(),
+        &smllm_format::system_path_text(&cwd),
     )?;
     Ok(Answer::Context { text: reply.text })
 }

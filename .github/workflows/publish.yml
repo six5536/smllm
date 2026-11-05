@@ -106,7 +106,7 @@ jobs:
 
       - name: Install cargo-zigbuild
         if: matrix.builder == 'zigbuild'
-        uses: taiki-e/install-action@v2.87.25
+        uses: taiki-e/install-action@v2.89.0
         with:
           tool: cargo-zigbuild
 
@@ -220,7 +220,7 @@ jobs:
         run: rustup toolchain install --profile minimal
 
       - name: Install wasm-bindgen
-        uses: taiki-e/install-action@v2.87.25
+        uses: taiki-e/install-action@v2.89.0
         with:
           tool: wasm-bindgen@0.2.129
 

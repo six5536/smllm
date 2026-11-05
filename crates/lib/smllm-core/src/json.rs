@@ -2,19 +2,21 @@
 //! byte, for `smllm-wasm`. Structs go through [`object!`], whose
 //! field list mirrors the serde derive: the JSON name, and whether serde
 //! requires the field (`req`), defaults it (`default`; every `Option` field
-//! is one) or also leaves it out while empty (`skip`). The tests prove the
-//! two agree.
+//! is one) or also leaves it out while empty (`skip`), false (`flag`), or
+//! its default value (`skip_default`). The tests prove the two agree.
 
 use smllm_json::{Error, Fields, FromJson, JsonValue, ToJson, object};
 
 use crate::engine::{InstanceStatus, Location, Reply, SessionStatus};
 use crate::host::MemoryStore;
 use crate::model::{
-    ActionDef, Config, EventDef, GuardDef, InstanceSpec, Machine, On, ParamSpec, Position, Prompt,
-    SharedAction, State, Transition, Value,
+    ActionDef, Config, EventDef, GuardDef, InstanceSpec, Machine, On, ParamKind, ParamSpec,
+    Position, Prompt, SharedAction, State, Transition, Value,
 };
 use crate::prelude::*;
-use crate::record::{HistoryEntry, Instance, InstanceKey, Session, Status};
+use crate::record::{
+    AuditBinding, AuditEntry, HistoryEntry, Instance, InstanceKey, Session, Status,
+};
 use crate::utils::SmallMap;
 
 /// `ToJson` + `FromJson` for a struct as a JSON object of the given names.
@@ -37,6 +39,16 @@ macro_rules! object {
     };
     (@write $o:ident, $v:expr, $name:literal, skip) => {
         if !$v.is_empty() {
+            $o.field($name, &$v);
+        }
+    };
+    (@write $o:ident, $v:expr, $name:literal, skip_default) => {
+        if $v != Default::default() {
+            $o.field($name, &$v);
+        }
+    };
+    (@write $o:ident, $v:expr, $name:literal, flag) => {
+        if $v {
             $o.field($name, &$v);
         }
     };
@@ -76,6 +88,7 @@ object!(InstanceSpec {
 object!(EventDef {
     description: "description" default,
     params: "params" req,
+    host_only: "hostOnly" flag,
 });
 
 object!(ParamSpec {
@@ -84,6 +97,8 @@ object!(ParamSpec {
     required: "required" req,
     enum_values: "enumValues" req,
     pattern: "pattern" default,
+    kind: "type" skip_default,
+    schema: "schema" skip_default,
 });
 
 object!(SharedAction {
@@ -160,6 +175,31 @@ object!(HistoryEntry {
     to: "to" default,
     params: "params" default,
     trace: "trace" default,
+});
+
+object!(AuditEntry {
+    at: "at" req,
+    session: "session" req,
+    source: "source" req,
+    call: "call" req,
+    event: "event" default,
+    machine: "machine" default,
+    instance: "instance" default,
+    from: "from" default,
+    to: "to" default,
+    params: "params" default,
+    offered: "offered" default,
+    outcome: "outcome" req,
+    reason: "reason" default,
+    trace: "trace" default,
+    binding: "binding" default,
+});
+
+object!(AuditBinding {
+    harness: "harness" req,
+    host_session: "hostSession" default,
+    cwd: "cwd" req,
+    configs: "configs" default,
 });
 
 /// Its fields are private (its indexes are derived): written through its
@@ -271,6 +311,25 @@ impl ToJson for Position {
 impl FromJson for Position {
     fn from_json(value: JsonValue) -> Result<Self, Error> {
         unit(value, &POSITIONS)
+    }
+}
+
+const PARAM_KINDS: [(&str, ParamKind); 2] =
+    [("string", ParamKind::String), ("json", ParamKind::Json)];
+
+impl ToJson for ParamKind {
+    fn write_json(&self, out: &mut String) {
+        let name = PARAM_KINDS
+            .iter()
+            .find(|(_, k)| k == self)
+            .map_or("", |(n, _)| n);
+        name.write_json(out);
+    }
+}
+
+impl FromJson for ParamKind {
+    fn from_json(value: JsonValue) -> Result<Self, Error> {
+        unit(value, &PARAM_KINDS)
     }
 }
 

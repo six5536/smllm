@@ -12,7 +12,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 authors = ["six5536 <10079653+six5536@users.noreply.github.com>"]
 edition = "2024"
 rust-version = "1.98.1"
@@ -25,17 +25,20 @@ categories = ["command-line-utilities"]
 
 [workspace.dependencies]
 # External dependencies (alphabetical)
+bgi-stroked-fonts = { version = "0.2", default-features = false, features = ["sans"] }
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
 clap_mangen = "0.3"
 etcetera = "0.11"
 getrandom = "0.4"
 regex = "1.13"
+resvg = { version = "0.49", default-features = false }
 rmcp = { version = "3.4", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1.2"
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde-saphyr = "1.3"
 serde_json = { version = "1.0", features = ["preserve_order"] }
+sha2 = { version = "0.11", default-features = false }
 thiserror = "2.0"
 tokio = { version = "1.53", default-features = false, features = ["rt", "macros", "io-std"] }
 toml = "1.1"
@@ -50,9 +53,9 @@ proptest = "1.11"
 
 # Internal crates
 agent-harness-adapter-core = "0.1"
-smllm-core = { path = "crates/lib/smllm-core", version = "0.5.0", default-features = false }
-smllm-format = { path = "crates/lib/smllm-format", version = "0.5.0" }
-smllm-json = { path = "crates/lib/smllm-json", version = "0.5.0" }
+smllm-core = { path = "crates/lib/smllm-core", version = "0.6.0", default-features = false }
+smllm-format = { path = "crates/lib/smllm-format", version = "0.6.0" }
+smllm-json = { path = "crates/lib/smllm-json", version = "0.6.0" }
 
 # Release builds of the native CLI optimise for speed: opt-level 2 runs as
 # fast as 3 and builds a smaller binary.

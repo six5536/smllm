@@ -3,6 +3,7 @@
 use core::fmt::Write as _;
 
 use crate::engine::{Offer, ParamView};
+use crate::model::ParamKind;
 use crate::prelude::*;
 use crate::utils::join;
 
@@ -95,44 +96,10 @@ impl Block {
         }
         self.out.push_str("<events>\n");
         for offer in offers {
-            self.out.push_str("- ");
-            self.out.push_str(&offer.name);
-            if let Some(d) = &offer.description {
-                self.out.push_str(" — ");
-                self.out.push_str(d);
-            }
-            self.out.push('\n');
-            for p in &offer.params {
-                self.param(p);
-            }
+            push_offer(&mut self.out, offer, true);
         }
         self.out.push_str("</events>\n");
         self
-    }
-
-    fn param(&mut self, p: &ParamView) {
-        let _ = write!(
-            self.out,
-            "    {} ({}",
-            p.name,
-            if p.required { "required" } else { "optional" }
-        );
-        if !p.enum_values.is_empty() {
-            let _ = write!(
-                self.out,
-                ", one of: {}",
-                join(p.enum_values.iter().map(String::as_str))
-            );
-        }
-        if let Some(pat) = &p.pattern {
-            let _ = write!(self.out, ", pattern: {pat}");
-        }
-        self.out.push(')');
-        if let Some(d) = &p.description {
-            self.out.push_str(": ");
-            self.out.push_str(d);
-        }
-        self.out.push('\n');
     }
 
     /// Close the fence and return the text.
@@ -141,6 +108,55 @@ impl Block {
         out.push_str("</smllm>\n");
         out
     }
+}
+
+/// One offered event as `- NAME — GUIDANCE`, then one indented line for
+/// each param (AGT-2): the events list and the state's text for a model
+/// without tools share it. `schemas`: show each JSON param's schema.
+pub(crate) fn push_offer(out: &mut String, offer: &Offer, schemas: bool) {
+    out.push_str("- ");
+    out.push_str(&offer.name);
+    if let Some(d) = &offer.description {
+        out.push_str(" — ");
+        out.push_str(d);
+    }
+    out.push('\n');
+    for p in &offer.params {
+        push_param(out, p, schemas);
+    }
+}
+
+fn push_param(out: &mut String, p: &ParamView, schemas: bool) {
+    let _ = write!(
+        out,
+        "    {} ({}",
+        p.name,
+        if p.required { "required" } else { "optional" }
+    );
+    if !p.enum_values.is_empty() {
+        let _ = write!(
+            out,
+            ", one of: {}",
+            join(p.enum_values.iter().map(String::as_str))
+        );
+    }
+    if let Some(pat) = &p.pattern {
+        let _ = write!(out, ", pattern: {pat}");
+    }
+    // sokf-implements: AGT-2_AC-5
+    if p.kind == ParamKind::Json {
+        out.push_str(", a JSON value");
+        if let Some(schema) = p.schema.as_ref().filter(|_| schemas) {
+            out.push_str(", schema: ");
+            out.push_str(schema);
+        }
+    }
+    out.push(')');
+    if let Some(d) = &p.description {
+        out.push_str(": ");
+        out.push_str(d);
+    }
+    out.push('\n');
 }
 
 #[cfg(test)]

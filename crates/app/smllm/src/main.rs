@@ -4,8 +4,9 @@
 // the stable toolchain used for normal builds and tests.
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 #![warn(missing_docs)]
-// The wasm's size rules of clippy.toml cover only the crates the wasm links.
-#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+// This crate's clippy.toml bans Path::display; the tests may print a path
+// as the system does.
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 mod cache;
 mod cli;
@@ -16,6 +17,7 @@ mod load_cache;
 mod man;
 mod output;
 mod paths;
+mod picture;
 mod runtime;
 mod store;
 use std::process::ExitCode;

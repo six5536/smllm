@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="smllm graph">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  color-scheme: light;
+  --ink: #1f2328; --muted: #59636e; --line: #d1d9e0; --soft: #f6f8fa; --pick: #0969da; --pick-soft: #ddf4ff;
+  --radius: 6px; --shadow: 0 1px 2px rgb(31 35 40 / 8%);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: #fff; height: 100vh; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 6px 14px; border-bottom: 1px solid var(--line); background: var(--soft); }
+header h1 { margin: 0; font-size: 14px; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 12px; }
+.legend li { display: inline-flex; align-items: center; gap: 5px; }
+.legend svg { flex: none; }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(300px, 32%); }
+nav { min-width: 150px; max-width: 220px; overflow: auto; border-right: 1px solid var(--line); padding: 6px; }
+nav[hidden] { display: none; }
+nav h2 { margin: 2px 6px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+nav a { display: block; padding: 3px 8px; border-radius: var(--radius); color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+nav a:hover { background: var(--soft); }
+nav a:focus-visible { outline: 2px solid var(--pick); outline-offset: -2px; }
+nav a[aria-current="page"] { background: var(--pick-soft); color: var(--pick); font-weight: 600; }
+#diagrams { overflow: auto; padding: 8px 14px 16px; }
+.machine h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.machine p { margin: 0 0 4px; color: var(--muted); }
+.machine[hidden] { display: none; }
+#details { border-left: 1px solid var(--line); padding: 10px 14px; overflow: auto; background: #fff; }
+#details h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; word-break: break-word; }
+#details h3 { margin: 12px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+#details h4 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+#details p { margin: 0 0 4px; }
+#details .hint, #details .none { color: var(--muted); }
+#details .tags { margin: 0 0 4px; }
+#details .tag { display: inline-block; font-size: 11px; line-height: 16px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin: 0 4px 2px 0; color: var(--muted); background: var(--soft); }
+#details .item { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; margin: 0 0 6px; background: var(--soft); box-shadow: var(--shadow); }
+#details .kind { font-weight: 600; }
+#details .from { color: var(--muted); font-size: 12px; }
+#details pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; margin: 4px 0 0; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+#details table { border-collapse: collapse; width: 100%; margin-top: 4px; font-size: 12px; }
+#details th, #details td { text-align: left; vertical-align: top; border-top: 1px solid var(--line); padding: 2px 6px 2px 0; }
+#details th { color: var(--muted); font-weight: 600; }
+#details button.link { background: none; border: 0; padding: 0; color: var(--pick); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+svg .state, svg .edge { cursor: pointer; outline: none; }
+svg .state:hover .box, svg .state:focus-visible .box { stroke: var(--pick); stroke-width: 2.4; }
+svg .edge:hover .line, svg .edge:focus-visible .line { stroke: var(--pick); stroke-width: 2.4; }
+svg .selected .box { stroke: var(--pick); stroke-width: 3; }
+svg .selected .line { stroke: var(--pick); stroke-width: 2.8; }
+svg .selected text { fill: var(--pick); }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } nav, #details { border: 0; border-top: 1px solid var(--line); max-width: none; } }
+</style>
+</head>
+<body>
+<header>
+<h1>{{TITLE}}</h1>
+<ul class="legend" aria-label="Legend">
+<li><svg width="20" height="12" aria-hidden="true"><rect x="1" y="1" width="18" height="10" rx="3" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/></svg>initial</li>
+<li><svg width="20" height="12" aria-hidden="true"><rect x="1" y="1" width="18" height="10" rx="3" fill="#dafbe1" stroke="#1a7f37"/></svg>entry point</li>
+<li><svg width="20" height="12" aria-hidden="true"><rect x="1" y="1" width="18" height="10" rx="3" fill="#fff8c5" stroke="#9a6700" stroke-dasharray="3 2"/></svg>fallback</li>
+<li><svg width="20" height="12" aria-hidden="true"><rect x="1" y="1" width="18" height="10" rx="3" fill="#fbefff" stroke="#8250df"/><rect x="3" y="3" width="14" height="6" rx="2" fill="none" stroke="#8250df"/></svg>final</li>
+<li><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" stroke="#bc4c00" stroke-width="1.6"/></svg>guarded</li>
+<li><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3"/></svg>always</li>
+</ul>
+</header>
+<main>
+<nav id="index" aria-label="State machines"{{NAV_HIDDEN}}><h2>State machines</h2>
+{{NAV}}
+</nav>
+<div id="diagrams">
+{{BODY}}
+</div>
+<aside id="details" aria-live="polite"><p class="hint">Select a state or a transition to see its actions, its guards, and its prompts.</p></aside>
+</main>
+<script type="application/json" id="machines">{{DATA}}</script>
+<script>
+(function () {
+  "use strict";
+  var machines = JSON.parse(document.getElementById("machines").textContent);
+  var panel = document.getElementById("details");
+  var links = Array.prototype.slice.call(document.querySelectorAll("#index a"));
+  var sections = Array.prototype.slice.call(document.querySelectorAll(".machine"));
+  var hint = "Select a state or a transition to see its actions, its guards, and its prompts.";
+  var picked = null;
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function add(parent, child) { parent.appendChild(child); return child; }
+  function pre(parent, text) { add(parent, el("pre", null, text)); }
+  function run(v) { return Array.isArray(v) ? JSON.stringify(v) : String(v); }
+
+  function params(box, p) {
+    if (p.run !== undefined) pre(box, run(p.run));
+    Object.keys(p).forEach(function (k) {
+      if (k !== "run") add(box, el("div", null, k + ": " + run(p[k])));
+    });
+  }
+
+  function action(parent, a) {
+    var box = add(parent, el("div", "item"));
+    var head = add(box, el("div"));
+    if (a.type === "prompt") {
+      add(head, el("span", "kind", "Prompt"));
+      if (a.file) add(head, el("span", null, a.implied ? " from " + a.file + ", the state's enter file" : " from " + a.file));
+      else add(head, el("span", null, " (inline)"));
+      if (a.error) add(box, el("div", "none", a.error)); else pre(box, a.text);
+    } else if (a.type === "setRef") {
+      add(head, el("span", "kind", "setRef"));
+      add(box, el("div", "none", "Records the instance's ref from the event's ref param."));
+    } else {
+      add(head, el("span", "kind", a.type === "command" ? "Command" : a.type));
+      params(box, a.params || {});
+    }
+    if (a.from) add(head, el("span", "from", " · from " + a.from));
+  }
+
+  function list(parent, title, items, none) {
+    add(parent, el("h3", null, title));
+    if (!items.length) { add(parent, el("p", "none", none)); return; }
+    items.forEach(function (a) { action(parent, a); });
+  }
+
+  function guard(parent, g) {
+    add(parent, el("h3", null, "Guard"));
+    if (!g) { add(parent, el("p", "none", "None: the transition is always taken.")); return; }
+    var box = add(parent, el("div", "item"));
+    if (g.type === "visits") {
+      add(box, el("span", "kind", "visits"));
+      add(box, el("div", null, "Passes when " + g.state + " has been entered at least " + g.atLeast + " times."));
+    } else {
+      add(box, el("span", "kind", g.type === "command" ? "Command" : g.type));
+      params(box, g.params || {});
+    }
+  }
+
+  function link(parent, text, key) {
+    var b = add(parent, el("button", "link", text));
+    b.type = "button";
+    b.addEventListener("click", function () { select(key); });
+  }
+
+  function stateIndex(m, name) {
+    for (var i = 0; i < m.states.length; i++) if (m.states[i].name === name) return i;
+    return -1;
+  }
+
+  function showState(mi, m, s) {
+    add(panel, el("h2", null, "State " + s.name));
+    var tags = add(panel, el("div", "tags"));
+    if (s.initial) add(tags, el("span", "tag", "initial"));
+    s.tags.forEach(function (t) { add(tags, el("span", "tag", t)); });
+    if (s.description) add(panel, el("p", null, s.description));
+    list(panel, "Entry actions", s.entry, "None.");
+    list(panel, "Exit actions", s.exit, "None.");
+    add(panel, el("h3", null, "Exit events"));
+    if (!s.events.length) add(panel, el("p", "none", "None: the state declares no transitions."));
+    s.events.forEach(function (ev) {
+      var box = add(panel, el("div", "item"));
+      add(box, el("h4", null, ev.event));
+      if (ev.guidance) add(box, el("div", null, ev.guidance));
+      if (ev.params.length) {
+        var t = add(box, el("table"));
+        var h = add(t, el("tr"));
+        ["Param", "Required", "Values", "Description"].forEach(function (c) { add(h, el("th", null, c)); });
+        ev.params.forEach(function (p) {
+          var r = add(t, el("tr"));
+          add(r, el("td", null, p.name));
+          add(r, el("td", null, p.required ? "yes" : "no"));
+          add(r, el("td", null, p.enum.length ? p.enum.join(", ") : (p.pattern ? "matches " + p.pattern : "any")));
+          add(r, el("td", null, p.description || ""));
+        });
+      }
+      ev.transitions.forEach(function (k) {
+        var tr = m.transitions[k];
+        var line = add(box, el("div"));
+        link(line, "→ " + (tr.target || s.name + " (stays)") + (tr.guard ? " [" + tr.guard.label + "]" : ""), "m" + mi + "-t" + k);
+      });
+    });
+  }
+
+  function showTransition(mi, m, t) {
+    var to = t.target ? t.from + " → " + t.target : t.from + " (stays)";
+    add(panel, el("h2", null, "Transition " + t.event + ": " + to));
+    var p = add(panel, el("p"));
+    link(p, t.from, "m" + mi + "-s" + stateIndex(m, t.from));
+    add(p, el("span", null, " → "));
+    if (t.target) link(p, t.target, "m" + mi + "-s" + stateIndex(m, t.target));
+    else add(p, el("span", null, t.from + " (stays)"));
+    if (t.reenter) add(p, el("span", "tag", "reenter"));
+    if (t.guidance) add(panel, el("p", null, t.guidance));
+    guard(panel, t.guard);
+    list(panel, "Actions", t.actions, "None.");
+  }
+
+  function select(key) {
+    if (picked) picked.classList.remove("selected");
+    picked = null;
+    panel.textContent = "";
+    var at = /^m(\d+)-([st])(\d+)$/.exec(key || "");
+    if (!at) { add(panel, el("p", "hint", hint)); return; }
+    var mi = +at[1], m = machines[mi], i = +at[3];
+    picked = document.querySelector('[data-key="' + key + '"]');
+    if (picked) picked.classList.add("selected");
+    if (at[2] === "s") showState(mi, m, m.states[i]); else showTransition(mi, m, m.transitions[i]);
+  }
+
+  // One machine at a time: the one that the URL's hash names, or the first.
+  function show() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    var mi = 0;
+    for (var i = 0; i < machines.length; i++) if (machines[i].id === id) mi = i;
+    sections.forEach(function (s, i) { s.hidden = i !== mi; });
+    links.forEach(function (a, i) {
+      if (i === mi) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+    select(null);
+  }
+
+  document.addEventListener("click", function (e) {
+    var g = e.target.closest && e.target.closest("[data-key]");
+    if (g) select(g.getAttribute("data-key"));
+    else if (e.target.closest && e.target.closest("svg")) select(null);
+  });
+  document.addEventListener("keydown", function (e) {
+    var g = e.target.closest && e.target.closest("[data-key]");
+    if (g && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(g.getAttribute("data-key")); return; }
+    var at = links.indexOf(e.target);
+    if (at >= 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      var next = links[(at + (e.key === "ArrowDown" ? 1 : links.length - 1)) % links.length];
+      next.focus();
+      next.click();
+    }
+  });
+  window.addEventListener("hashchange", show);
+  show();
+})();
+</script>
+</body>
+</html>

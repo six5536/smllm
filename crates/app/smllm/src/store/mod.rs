@@ -1,7 +1,9 @@
-//! The file store: sessions and bindings under the user's state dir,
-//! instances and history in `state/` beside their config ([`instances`]);
-//! atomic writes, a file lock and instance versions (STO, AGT-10).
+//! The file store: sessions, bindings and the audit ([`audit`]) under the
+//! user's state dir, instances and history in `state/` beside their config
+//! ([`instances`]); atomic writes, a file lock and instance versions (STO,
+//! AGT-10).
 
+mod audit;
 mod instances;
 
 use std::collections::HashMap;
@@ -11,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use agent_harness_adapter_core::fs as fs_kit;
 use smllm_core::host::{HostError, Store};
-use smllm_core::record::{HistoryEntry, Instance, Session, Status};
+use smllm_core::record::{AuditEntry, HistoryEntry, Instance, Session, Status};
 
 // sokf-implements: STORE-1_AC-1
 /// Sessions under `user`, instances under each machine's state dir.
@@ -30,7 +32,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, H
     };
     serde_json::from_str(&text)
         .map(Some)
-        .map_err(|e| other(format!("{}: {e}", path.display())))
+        .map_err(|e| other(format!("{}: {e}", smllm_format::path_text(path))))
 }
 
 /// Write via a temp file + rename, so readers never see half a file.
@@ -107,6 +109,12 @@ impl FsStore {
             .filter(|l| !l.trim().is_empty())
             .map(|l| serde_json::from_str(l).map_err(other))
             .collect()
+    }
+
+    /// The lines of session `key`'s audit, as the file holds them; none
+    /// when the session has no audit file.
+    pub fn audit(&self, key: &str) -> Result<Option<Vec<String>>, HostError> {
+        audit::read(&audit::path(&self.user, key))
     }
 
     /// Every instance file of `machine`, both shelves: the readable ones
@@ -257,6 +265,16 @@ impl Store for FsStore {
             .open(path)
             .map_err(other)?;
         f.write_all(line.as_bytes()).map_err(other)
+    }
+
+    // sokf-implements: STORE-5_AC-1
+    fn wants_audit(&self) -> bool {
+        true
+    }
+
+    fn append_audit(&mut self, entry: &AuditEntry, reply: &str) -> Result<(), HostError> {
+        let line = audit::line(entry, reply)?;
+        audit::append(&audit::path(&self.user, &entry.session), &line)
     }
 }
 

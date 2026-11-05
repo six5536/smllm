@@ -38,7 +38,12 @@ pub const RULES: &[Rule] = &[
     Rule {
         code: "FMT-4",
         title: "Event and instance declarations",
-        checks: "The ref param's name, and each declared event and param name, contain only letters, digits, `_`, and `-`. An event's params are an object of string properties, each required param is in `properties`, and each `enum` and `pattern` is valid and allows at least one value. A state rewords only the events that it has a transition on, and only params that the event declares in `meta.events`. Each declared event is used by a state, and each ref pattern can match a ref.",
+        checks: "The ref param's name, and each declared event and param name, contain only letters, digits, `_`, and `-`. An event's params are an object of properties, each required param is in `properties`, and each `enum` and `pattern` is valid and allows at least one value. A state rewords only the events that it has a transition on, and only params that the event declares in `meta.events`. Each declared event is used by a state, and each ref pattern can match a ref. An event's `source` is `agent` or `host`, and a machine with an event of `source: host` gets an info finding, because only a host can fire the event, so the machine needs a host to drive it.",
+    },
+    Rule {
+        code: "FMT-10",
+        title: "JSON params",
+        checks: "A `json` param takes no `enum` or `pattern`, a string param takes no `schema`, and a param that sets the ref is a string. A `json` param's schema, and each file that a relative `$ref` in it names, is a map or a JSON file that smllm can read, declares draft-07, 2020-12, or no draft, and is valid against its draft. A schema without a draft is 2020-12, or the draft of the schema that refers to it. Each `$ref` to another file is a path relative to the schema that holds it, because smllm doesn't fetch a schema from the network.",
     },
     Rule {
         code: "FMT-6",
@@ -58,7 +63,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         code: "AGT-2",
         title: "Events list",
-        checks: "A built-in event changes only its description, never its params.",
+        checks: "A built-in event changes only its description, never its params or its source.",
     },
     Rule {
         code: "AGT-5",
@@ -72,8 +77,8 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         code: "MCP-1",
-        title: "String params",
-        checks: "Each param has `type: string`.",
+        title: "Param types",
+        checks: "Each param has `type: string`, the default, or `type: json`.",
     },
     Rule {
         code: "CLI-3",

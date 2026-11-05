@@ -12,7 +12,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt as _};
 use serde_json::{Map, Value};
-use smllm_core::AGENT_RULES;
+use smllm_core::{AGENT_RULES, ParamValue};
 
 use crate::cache::ConfigCache;
 use crate::error::{Error, Result};
@@ -62,18 +62,22 @@ fn call_inner(
     };
     let session = str_arg("session")?;
     let event = str_arg("event")?;
+    // A string is a JSON string, and any other JSON value is its compact JSON
+    // text, which only a JSON param takes (MCP-1).
+    // sokf-implements: MCP-1_AC-6
     let mut params = Vec::new();
     match args.get("params") {
         None | Some(Value::Null) => {}
         Some(Value::Object(m)) => {
             for (k, v) in m {
-                match v {
-                    Value::String(s) => params.push((k.clone(), s.clone())),
-                    _ => return Err(Error::msg(format!("param {k} must be a string"))),
-                }
+                let value = match v {
+                    Value::String(s) => ParamValue::Str(s.clone()),
+                    other => ParamValue::Json(other.to_string()),
+                };
+                params.push((k.clone(), value));
             }
         }
-        Some(_) => return Err(Error::msg("params must be an object of strings")),
+        Some(_) => return Err(Error::msg("params must be an object")),
     }
     // The loaded config outlives the call; it is checked each call (MCP-1).
     let files = Runtime::call_configs(session.as_deref(), explicit, cwd)?;

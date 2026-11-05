@@ -66,7 +66,10 @@ pub fn lookup(explicit: Option<&Path>, from: &Path) -> Result<Vec<ConfigFile>> {
     if let Some(p) = self::explicit(explicit) {
         let p = if p.is_relative() { from.join(p) } else { p };
         if !p.is_file() {
-            return Err(Error::msg(format!("config {} does not exist", p.display())));
+            return Err(Error::msg(format!(
+                "config {} does not exist",
+                smllm_format::path_text(&p)
+            )));
         }
         return Ok(vec![ConfigFile {
             path: p,

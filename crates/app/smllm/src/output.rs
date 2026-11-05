@@ -37,13 +37,12 @@ pub fn json(v: &impl Serialize) -> Result<()> {
     write_stdout(&buf).map_err(stdout_err)
 }
 
-/// A path relative to the working dir when below it.
+/// A path relative to the working dir when below it, with `/` on every
+/// platform.
+// sokf-implements: CLI-15_AC-1
 pub fn shown(path: &Path) -> String {
     let cwd = std::env::current_dir().unwrap_or_default();
-    path.strip_prefix(&cwd)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+    smllm_format::path_text(path.strip_prefix(&cwd).unwrap_or(path))
 }
 
 /// smllm-format findings as a report, files shown relative to the cwd.

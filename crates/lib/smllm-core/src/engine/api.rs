@@ -1,11 +1,13 @@
-//! The engine's public protocol: `bind`, `view`, `menu`, `fire`, `stop`,
-//! `prompt_submitted` (ENG-1).
+//! The engine's public protocol: `bind`, `view`, `menu`, `fire`,
+//! `fire_as_host`, `stop`, `prompt_submitted` (ENG-1), each call that drives
+//! a session audited (ENG-11).
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use crate::engine::audit::{self, Ask};
 use crate::engine::turn::Turn;
-use crate::engine::{idle, machine};
+use crate::engine::{ParamValue, idle, machine};
 use crate::host::{Action, Guard, Host, HostError};
 use crate::model::{ActionDef, Config, GuardDef, Transition};
 use crate::prelude::*;
@@ -117,13 +119,30 @@ pub struct Bind<'s> {
 #[derive(Debug, Clone)]
 pub struct Engine {
     config: Config,
+    /// Made by [`Engine::for_harness`]: no host fires events (ENG-6).
+    under_harness: bool,
 }
 
 // sokf-implements: ENG-1_AC-1
 impl Engine {
-    /// An engine for `config`.
+    /// An engine for `config`, in a host that can fire the host-only events
+    /// of its machines through [`Engine::fire_as_host`].
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            under_harness: false,
+        }
+    }
+
+    /// An engine for `config` under a harness, such as Claude Code, where
+    /// only the agent fires events: it refuses to start an instance of a
+    /// machine with host-only events, because nothing could fire them
+    /// (ENG-6).
+    pub fn for_harness(config: Config) -> Self {
+        Self {
+            config,
+            under_harness: true,
+        }
     }
 
     /// The config.
@@ -186,11 +205,12 @@ impl Engine {
     /// Returns the current entry block (session start / resume / compact).
     // sokf-implements: ENG-2_AC-1
     pub fn bind(&self, host: &mut Host<'_>, bind: &Bind<'_>) -> Result<Reply, Error> {
+        let mut ask = Ask::agent("bind");
         if let Some(hs) = bind.host_session
             && let Some(key) = host.store.binding(bind.harness, hs)?
             && host.store.session(&key)?.is_some()
         {
-            return self.view(host, &key);
+            return self.show(host, &key, true, Some(ask));
         }
         let session = self.new_session(host, bind)?;
         if let Some(hs) = bind.host_session {
@@ -198,7 +218,8 @@ impl Engine {
         }
         let key = session.key.clone();
         host.store.put_session(&session)?;
-        self.view(host, &key)
+        ask.created = true;
+        self.show(host, &key, true, Some(ask))
     }
 
     // sokf-implements: ENG-2_AC-2
@@ -228,10 +249,13 @@ impl Engine {
             .ok_or_else(|| Error::UnknownSession(key.to_string()))
     }
 
-    /// Read-only "where am I": entry block + events list; changes nothing (AGT-3).
+    /// Read-only "where am I": entry block + events list; changes nothing
+    /// (AGT-3) and records no audit entry, for a host that shows a session
+    /// to its user. The agent's own look is [`Engine::call`] with no event.
     // sokf-implements: AGT-3_AC-1
+    // sokf-implements: ENG-11_AC-6
     pub fn view(&self, host: &mut Host<'_>, key: &str) -> Result<Reply, Error> {
-        self.show(host, key, true)
+        self.show(host, key, true, None)
     }
 
     /// A tool call (WASM-1): no event is a view, which needs a key; an
@@ -242,41 +266,90 @@ impl Engine {
         host: &mut Host<'_>,
         key: Option<&str>,
         event: Option<&str>,
-        params: &[(String, String)],
+        params: &[(String, ParamValue)],
         bind: &Bind<'_>,
     ) -> Result<Reply, Error> {
         match event {
-            None => self.view(host, key.ok_or(Error::MissingSession)?),
+            None => {
+                let key = key.ok_or(Error::MissingSession)?;
+                self.show(host, key, true, Some(Ask::agent("view")))
+            }
             Some(ev) => self.fire(host, key, ev, params, bind),
         }
     }
 
     /// The events list for the current state (the stop hook's text).
     pub fn menu(&self, host: &mut Host<'_>, key: &str) -> Result<Reply, Error> {
-        self.show(host, key, false)
+        self.show(host, key, false, Some(Ask::agent("menu")))
     }
 
     /// Where session `key` is; in a machine state, with its entry prompts
-    /// when `entry`.
-    fn show(&self, host: &mut Host<'_>, key: &str, entry: bool) -> Result<Reply, Error> {
+    /// when `entry`. Audited when `ask` says what the call was.
+    fn show(
+        &self,
+        host: &mut Host<'_>,
+        key: &str,
+        entry: bool,
+        ask: Option<Ask<'_>>,
+    ) -> Result<Reply, Error> {
         let session = self.session(host, key)?;
         let mut turn = Turn::new(&self.config, host, session, "");
-        if turn.session.holding.is_some() {
-            return machine::view(&mut turn, entry);
+        if ask.is_some() {
+            audit::begin(&mut turn);
         }
-        idle::reply(&mut turn, true, None)
+        let reply = if turn.session.holding.is_some() {
+            machine::view(&mut turn, entry)?
+        } else {
+            idle::reply(&mut turn, true, None)?
+        };
+        if let Some(ask) = ask {
+            let outcome = audit::outcome(reply.ok);
+            audit::record(&mut turn, &ask, outcome, &reply.location, &reply.text)?;
+        }
+        Ok(reply)
     }
 
-    /// Fire `event` with `params` (AGT-3). With no key, only `enter` may bind
-    /// a new session, for harnesses without hooks (AGT-3).
+    /// Fire `event` with `params` for the agent (AGT-3). With no key, only
+    /// `enter` may bind a new session, for harnesses without hooks (AGT-3).
+    /// An event that the machine marks with `source: host` is refused: the
+    /// host fires it through [`Engine::fire_as_host`]. A host that fires an
+    /// event that its agent chose calls this method.
     // sokf-implements: AGT-3_AC-4
     pub fn fire(
         &self,
         host: &mut Host<'_>,
         key: Option<&str>,
         event: &str,
-        params: &[(String, String)],
+        params: &[(String, ParamValue)],
         bind: &Bind<'_>,
+    ) -> Result<Reply, Error> {
+        self.fire_from(host, key, event, params, bind, false)
+    }
+
+    /// Fire `event` with `params` as the host: [`Engine::fire`], which also
+    /// takes the events that the machine marks with `source: host` (ENG-6).
+    /// Call it only for the host's own events, such as the result of its
+    /// checks, never for an event that the agent chose.
+    // sokf-implements: ENG-6_AC-1
+    pub fn fire_as_host(
+        &self,
+        host: &mut Host<'_>,
+        key: Option<&str>,
+        event: &str,
+        params: &[(String, ParamValue)],
+        bind: &Bind<'_>,
+    ) -> Result<Reply, Error> {
+        self.fire_from(host, key, event, params, bind, true)
+    }
+
+    fn fire_from(
+        &self,
+        host: &mut Host<'_>,
+        key: Option<&str>,
+        event: &str,
+        params: &[(String, ParamValue)],
+        bind: &Bind<'_>,
+        as_host: bool,
     ) -> Result<Reply, Error> {
         let session = match key {
             Some(k) => self.session(host, k)?,
@@ -287,14 +360,30 @@ impl Engine {
         };
         let mut turn = Turn::new(&self.config, host, session, event);
         turn.unsaved = key.is_none();
+        turn.as_host = as_host;
+        turn.under_harness = self.under_harness;
         turn.session.last_active = turn.now;
         // Saved with the session by every path that records the event.
         turn.session.blocked = false;
-        if turn.session.holding.is_some() {
-            machine::fire(&mut turn, params)
+        audit::begin(&mut turn);
+        let reply = if turn.session.holding.is_some() {
+            machine::fire(&mut turn, params)?
         } else {
-            idle::fire(&mut turn, params)
+            idle::fire(&mut turn, params)?
+        };
+        // A rejected keyless call saved no session: no audit to add to.
+        if !(turn.unsaved && !reply.ok) {
+            let ask = Ask {
+                source: if as_host { "host" } else { "agent" },
+                call: "fire",
+                event: Some(event),
+                params,
+                created: turn.unsaved,
+            };
+            let outcome = audit::outcome(reply.ok);
+            audit::record(&mut turn, &ask, outcome, &reply.location, &reply.text)?;
         }
+        Ok(reply)
     }
 
     /// The stop hook (AGT-8..6): in a machine state, block with the events
@@ -311,28 +400,42 @@ impl Engine {
         let Some(session) = host.store.session(key)? else {
             return Ok(Stop::Allow);
         };
-        if session.may_stop() {
-            return Ok(Stop::Allow);
+        let mut turn = Turn::new(&self.config, host, session, "");
+        audit::begin(&mut turn);
+        let (stop, at) = Self::decide(&mut turn, stop_hook_active)?;
+        let (outcome, text) = match &stop {
+            Stop::Allow => ("allow", ""),
+            Stop::Block(t) => ("block", t.as_str()),
+            Stop::Runaway(t) => ("runaway", t.as_str()),
+        };
+        audit::record(&mut turn, &Ask::agent("stop"), outcome, &at, text)?;
+        Ok(stop)
+    }
+
+    /// The stop decision for `turn`'s session, and where the session is.
+    fn decide(turn: &mut Turn<'_, '_>, stop_hook_active: bool) -> Result<(Stop, Location), Error> {
+        let allow = || Ok((Stop::Allow, Location::default()));
+        if turn.session.may_stop() {
+            return allow();
         }
         // The runaway release needs both the harness's flag and no event
         // fired since the last block: a fire clears `blocked`.
-        let runaway = stop_hook_active && session.blocked;
-        let mut turn = Turn::new(&self.config, host, session, "");
+        let runaway = stop_hook_active && turn.session.blocked;
         // A moved instance is reported once, here, and the session drops to
         // idle (AGT-10); an unconfigured machine lets the agent stop.
-        let text = match machine::held(&mut turn, true)? {
-            Ok((m, inst)) => machine::view_held(&mut turn, m, &inst, false).text,
-            Err(machine::Gone::Moved(r)) => r.text,
-            Err(machine::Gone::Unconfigured(_)) => return Ok(Stop::Allow),
+        let reply = match machine::held(turn, true)? {
+            Ok((m, inst)) => machine::view_held(turn, m, &inst, false),
+            Err(machine::Gone::Moved(r)) => *r,
+            Err(machine::Gone::Unconfigured(_)) => return allow(),
         };
         if runaway {
-            return Ok(Stop::Runaway(text));
+            return Ok((Stop::Runaway(reply.text), reply.location));
         }
         if !turn.session.blocked {
             turn.session.blocked = true;
             turn.host.store.put_session(&turn.session)?;
         }
-        Ok(Stop::Block(text))
+        Ok((Stop::Block(reply.text), reply.location))
     }
 
     /// A user prompt arrived: clear the yielded flag; inject nothing (AGT-8).

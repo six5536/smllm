@@ -2,7 +2,7 @@
 
 use crate::model::Value;
 use crate::prelude::*;
-use crate::record::{HistoryEntry, Instance, Session, Status};
+use crate::record::{AuditEntry, HistoryEntry, Instance, Session, Status};
 use crate::utils::{SmallMap, merge_sort_by};
 
 /// A store failure.
@@ -23,7 +23,8 @@ impl core::fmt::Display for HostError {
     }
 }
 
-/// Sessions, bindings, instances and history.
+/// Sessions, bindings, instances, history and, when the host keeps one, the
+/// audit.
 pub trait Store {
     /// The session with `key`.
     fn session(&mut self, key: &str) -> Result<Option<Session>, HostError>;
@@ -96,6 +97,20 @@ pub trait Store {
         id: &str,
         entry: &HistoryEntry,
     ) -> Result<(), HostError>;
+    // sokf-implements: ENG-11_AC-7
+    /// Whether the host keeps an audit (ENG-11). The default keeps none, and
+    /// the engine then builds no entry.
+    fn wants_audit(&self) -> bool {
+        false
+    }
+    /// Keep one audit entry, with `reply`, the text that the call returned
+    /// (empty for a stop that lets the agent stop). The host keeps what it
+    /// likes of the text, such as `sha256:` and the hex of the SHA-256 of
+    /// its UTF-8 bytes. The default drops both.
+    fn append_audit(&mut self, entry: &AuditEntry, reply: &str) -> Result<(), HostError> {
+        let _ = (entry, reply);
+        Ok(())
+    }
 }
 
 /// Order instances most recently updated first, ties by machine, then
@@ -149,7 +164,8 @@ pub trait Action {
     fn run(&mut self, call: &Call<'_>) -> Outcome;
 }
 
-/// Reads prompt files (ENG-4).
+/// Reads the text of a file: a prompt file when the engine shows it (ENG-4),
+/// and, in `smllm-format`, every file of a machine when it loads (FMT-11).
 pub trait InstructionSource {
     /// The text of `file`; `Ok(None)` when it does not exist.
     fn read(&self, file: &str) -> Result<Option<String>, String>;

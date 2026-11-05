@@ -1,0 +1,7 @@
+# The CLI's crates print paths, so they read this file instead of the
+# workspace's clippy.toml, whose bans cover only the crates the wasm links.
+# A path that smllm prints reads the same on every platform: show it with
+# smllm_format::path_text, or the CLI's output::shown, never with display.
+disallowed-methods = [
+  { path = "std::path::Path::display", reason = "prints `\\` on Windows: use smllm_format::path_text or output::shown, or #[expect] with the reason when the text goes to the system" },
+]

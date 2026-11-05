@@ -36,7 +36,7 @@ pub fn init(args: &InitArgs) -> Result<u8> {
         write_atomic(&path, &text)?;
     }
     if args.json {
-        output::json(&json!({ "path": path.display().to_string(), "created": created }))?;
+        output::json(&json!({ "path": smllm_format::path_text(&path), "created": created }))?;
     } else if created {
         output::text(&format!("created {}\n", output::shown(&path)))?;
     } else {
@@ -97,7 +97,7 @@ pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
     write_atomic(&config, &registered)?;
     if args.json {
         output::json(
-            &json!({ "id": args.id, "path": file.display().to_string(), "config": config.display().to_string() }),
+            &json!({ "id": args.id, "path": smllm_format::path_text(&file), "config": smllm_format::path_text(&config) }),
         )?;
     } else {
         output::text(&format!(
@@ -113,11 +113,9 @@ pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
 fn register(config: &Path, config_dir: &Path, file: &Path) -> Result<String> {
     let text = std::fs::read_to_string(config).map_err(|e| Error::io(config, e))?;
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
-        agent_harness_adapter_core::Error::file(config.display().to_string(), e.message())
+        agent_harness_adapter_core::Error::file(smllm_format::path_text(config), e.message())
     })?;
-    let rel = relative(config_dir, file)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = smllm_format::path_text(&relative(config_dir, file));
     let machines = doc.entry("machines").or_insert(toml_edit::table());
     let files = machines
         .as_table_like_mut()

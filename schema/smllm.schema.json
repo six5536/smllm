@@ -161,10 +161,21 @@
           "default": null
         },
         "params": {
-          "description": "The event's params: a JSON Schema object of string properties.",
+          "description": "The event's params: a JSON Schema object of string and JSON properties.",
           "anyOf": [
             {
               "$ref": "#/$defs/ParamsSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Who fires the event: `agent`, the default, or `host`. Only the host fires a `host` event, through `fire_as_host`, and the agent never sees it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventSource"
             },
             {
               "type": "null"
@@ -211,8 +222,17 @@
       "type": "object",
       "properties": {
         "type": {
-          "description": "Always `string`.",
-          "type": "string"
+          "description": "`string`, the default, or `json`, for a param that takes any JSON value.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "enum": [
+            "string",
+            "json",
+            null
+          ]
         },
         "description": {
           "description": "The prompt for the param.",
@@ -223,7 +243,7 @@
           "default": null
         },
         "enum": {
-          "description": "The allowed values.",
+          "description": "The allowed values of a string param.",
           "type": [
             "array",
             "null"
@@ -234,17 +254,54 @@
           "default": null
         },
         "pattern": {
-          "description": "A pattern that the value must match, in Rust `regex` syntax: the common\nsubset of JSON Schema's ECMA-262 patterns, without lookaround or\nbackreferences. In smllm, `\\d`, `\\w`, and `\\s` match Unicode, and in a\nJavaScript host they match only ASCII. To match ASCII digits in both, write\n`[0-9]`.",
+          "description": "A pattern that a string param's value must match, in Rust `regex`\nsyntax: the common subset of JSON Schema's ECMA-262 patterns, without\nlookaround or backreferences. In smllm, `\\d`, `\\w`, and `\\s` match\nUnicode, and in a JavaScript host they match only ASCII. To match ASCII\ndigits in both, write `[0-9]`.",
           "type": [
             "string",
             "null"
           ],
           "default": null
+        },
+        "schema": {
+          "description": "The JSON Schema of a `json` param's value, draft-07 or 2020-12: a path\nrelative to the machine file, or the schema itself as a map.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "type"
+      "additionalProperties": false
+    },
+    "SchemaSrc": {
+      "description": "A `json` param's schema.",
+      "anyOf": [
+        {
+          "description": "A JSON file, relative to the machine file. The path can lead outside the machine's folder.",
+          "type": "string"
+        },
+        {
+          "description": "The schema itself.",
+          "type": "object",
+          "additionalProperties": true
+        }
+      ]
+    },
+    "EventSource": {
+      "description": "Who fires an event.",
+      "oneOf": [
+        {
+          "description": "The agent, through the `smllm` tool or `smllm fire`.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "Only the host that embeds the engine, through `fire_as_host`.",
+          "type": "string",
+          "const": "host"
+        }
       ]
     },
     "SharedActionSrc": {

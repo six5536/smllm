@@ -8,6 +8,7 @@ use crate::load::{ConfigFile, Mode, Origin, load_configs, load_machine};
 
 /// Compile a `config.toml` (every machine it lists) or one machine file.
 // sokf-implements: FMT-8_AC-1
+// sokf-implements: FMT-8_AC-2
 pub fn compile(path: &std::path::Path) -> (Option<String>, Findings) {
     let is_toml = path.extension().is_some_and(|e| e == "toml");
     let (config, findings) = if is_toml {

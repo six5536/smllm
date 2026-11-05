@@ -1,5 +1,6 @@
 //! One module per command group.
 
+pub mod audit;
 pub mod config;
 pub mod graph;
 pub mod harness;

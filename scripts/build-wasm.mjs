@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 // Build packages/smllm-wasm: cargo (the wasm profile, for size; wasm32; std
-// rebuilt for size on a pinned nightly) → wasm-bindgen (web + bundler targets) → wasm-opt -Oz;
+// rebuilt for size on a pinned nightly) → wasm-bindgen (web + bundler targets) → wasm-opt -Oz,
+// once for the module that both targets share;
 // print the .wasm size (WASM-7). Also regenerates the smoke test's compiled
-// machines from examples/dev, and the wasm example's (examples/wasm).
+// machines from examples/dev, the host-driven test's from examples/extractor,
+// and the wasm example's (examples/wasm).
 //
 // Needs rustup (the script installs NIGHTLY with rust-src and the wasm32
 // target), wasm-bindgen-cli matching the wasm-bindgen crate version, and the
 // `binaryen` and `typescript` npm devDependencies (wasm-opt, tsc).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, statSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-// WASM-7: about 15% over the size measured when smllm-json replaced serde_json
-// in the wasm (116.0 KiB).
-const BUDGET = 134 * 1024;
+// WASM-5: raised from 134 KiB to 150 KiB when JSON params left 1.7 KB of
+// headroom, and to 165 KiB when the host-driven mode and the audit left 256
+// bytes.
+const BUDGET = 165 * 1024;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = join(root, "packages/smllm-wasm");
 // std rebuilt for size, panics as a bare trap. Nightly-only
@@ -51,29 +54,39 @@ run("cargo", [
   CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f"),
 });
 const raw = join(root, "target/wasm32-unknown-unknown/wasm/smllm_wasm.wasm");
-for (const target of ["web", "bundler"]) {
+const targets = ["web", "bundler"];
+const moduleOf = (target) => join(pkg, "wasm", target, "smllm_wasm_bg.wasm");
+for (const target of targets) {
   const out = join(pkg, "wasm", target);
   rmSync(out, { recursive: true, force: true });
   run("wasm-bindgen", ["--target", target, "--out-dir", out, raw]);
-  const wasm = join(out, "smllm_wasm_bg.wasm");
+}
+// wasm-bindgen writes the same module for both targets, and only their
+// JavaScript differs, so wasm-opt runs once and the second target takes a copy.
+// wasm-opt -Oz --converge takes about 5 s a module.
+const same = targets.every((t) => readFileSync(moduleOf(t)).equals(readFileSync(moduleOf(targets[0]))));
+for (const target of same ? targets.slice(0, 1) : targets) {
+  const wasm = moduleOf(target);
   // The producers and target-features sections name the toolchain; nothing reads them.
   // --converge repeats the passes while they still shrink the file: about
   // 160 bytes gzipped.
   run(join(root, "node_modules/.bin/wasm-opt"), ["-Oz", "--converge", "--strip-producers", "--strip-target-features", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext", "--enable-mutable-globals", "-o", wasm, wasm]);
-  if (target === "web") {
-    const bytes = statSync(wasm).size;
-    console.log(`smllm_wasm_bg.wasm: ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB, budget ${BUDGET / 1024} KiB)`);
-    // sokf-tests: WASM-5_AC-1
-    if (bytes > BUDGET) {
-      console.error(`error: smllm_wasm_bg.wasm is over its ${BUDGET / 1024} KiB budget (WASM-7)`);
+}
+if (same) for (const target of targets.slice(1)) copyFileSync(moduleOf(targets[0]), moduleOf(target));
+{
+  const wasm = moduleOf("web");
+  const bytes = statSync(wasm).size;
+  console.log(`smllm_wasm_bg.wasm: ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB, budget ${BUDGET / 1024} KiB)`);
+  // sokf-tests: WASM-5_AC-1
+  if (bytes > BUDGET) {
+    console.error(`error: smllm_wasm_bg.wasm is over its ${BUDGET / 1024} KiB budget (WASM-7)`);
+    process.exit(1);
+  }
+  const text = readFileSync(wasm, "latin1");
+  for (const path of [homedir(), cargoHome, root, rustSrc]) {
+    if (text.includes(path)) {
+      console.error(`error: smllm_wasm_bg.wasm holds the build path ${path}`);
       process.exit(1);
-    }
-    const text = readFileSync(wasm, "latin1");
-    for (const path of [homedir(), cargoHome, root, rustSrc]) {
-      if (text.includes(path)) {
-        console.error(`error: smllm_wasm_bg.wasm holds the build path ${path}`);
-        process.exit(1);
-      }
     }
   }
 }
@@ -84,5 +97,6 @@ run(join(root, "node_modules/.bin/tsc"), ["-p", pkg]);
 // folder to write the smoke test's machines into.
 if (existsSync(join(pkg, "test"))) {
   run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/dev/config.toml", "-o", "packages/smllm-wasm/test/dev.json"]);
+  run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/extractor/config.toml", "-o", "packages/smllm-wasm/test/extractor.json"]);
 }
 run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/wasm/config.toml", "-o", "examples/wasm/machines.json"]);

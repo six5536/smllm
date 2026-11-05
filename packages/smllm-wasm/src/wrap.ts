@@ -3,12 +3,16 @@
 // its build's wasm-bindgen `Engine` as `Raw`.
 
 import type {
+  AuditEntry,
+  CheckedAnswer,
   HistoryEntry,
   Host,
+  HostView,
   RecordKind,
   Reply,
   SessionStatus,
   State,
+  StateTextOptions,
   Storage,
   StopDecision,
   Tool,
@@ -26,6 +30,8 @@ export interface RawHost {
   random(): number;
   history(machine: string, id: string, entry: string): void;
   put(kind: RecordKind, key: string, record: string): void;
+  wantsAudit(): boolean;
+  audit(entry: string, reply: string): void;
 }
 
 /** A build's wasm-bindgen `Engine`: JSON text in and out. */
@@ -38,8 +44,13 @@ export interface RawEngine {
   events(key: string): string;
   status(key: string): string;
   fire(key: string | null | undefined, event: string, params: string): string;
+  fireAsHost(key: string | null | undefined, event: string, params: string): string;
   stop(key: string, stopHookActive: boolean): string;
   promptSubmitted(key: string): void;
+  stateText(key: string, schemas: boolean): string;
+  answerSchema(key: string): string;
+  checkAnswer(key: string, text: string): string;
+  hostView(key: string): string;
   exportState(): string;
   importState(state: string): void;
   free(): void;
@@ -69,6 +80,10 @@ function adapt(host: Host): RawHost {
     put: (kind, key, record) => {
       host.put?.(kind, key, parse(record));
     },
+    wantsAudit: () => Boolean(host.wantsAudit?.()),
+    audit: (entry, reply) => {
+      host.audit?.(parse<AuditEntry>(entry), reply);
+    },
   };
 }
 
@@ -80,7 +95,8 @@ export class Engine {
 
   /**
    * `storage`, when given, is loaded now and then receives every saved
-   * record and history entry (its `put` and `history` go before `host`'s).
+   * record and history entry, and each audit entry when it wants an audit
+   * (its `put`, `history` and `audit` go before `host`'s).
    */
   constructor(compiled: string | object, host: Host = {}, storage?: Storage) {
     const json = typeof compiled === "string" ? compiled : JSON.stringify(compiled);
@@ -95,6 +111,15 @@ export class Engine {
           history: (machine, id, entry) => {
             storage.history(machine, id, entry);
             host.history?.(machine, id, entry);
+          },
+          wantsAudit: () => Boolean(storage.wantsAudit?.() || host.wantsAudit?.()),
+          audit: (entry, reply) => {
+            if (storage.wantsAudit?.()) {
+              storage.audit?.(entry, reply);
+            }
+            if (host.wantsAudit?.()) {
+              host.audit?.(entry, reply);
+            }
           },
         }
       : host;
@@ -126,7 +151,7 @@ export class Engine {
     return parse(this.#raw.bind(harness, hostSession, cwd));
   }
 
-  /** Where the session is; changes nothing. */
+  /** Where the session is; changes nothing and records no audit entry. A look of the agent's is `callTool` with no event. */
   view(key: string): Reply {
     return parse(this.#raw.view(key));
   }
@@ -140,9 +165,23 @@ export class Engine {
     return parse(this.#raw.status(key));
   }
 
-  /** Fire an event; with no key, only `enter` (it starts a session). */
-  fire(key: string | undefined, event: string, params: Record<string, string> = {}): Reply {
+  /**
+   * Fire an event for the agent; with no key, only `enter` (it starts a
+   * session). An event that the machine marks with `source: host` is
+   * refused: fire it with `fireAsHost`. Fire an event that the agent chose
+   * here, never with `fireAsHost`. A param takes a string, or any JSON
+   * value when the events list shows it as a JSON value.
+   */
+  fire(key: string | undefined, event: string, params: Record<string, unknown> = {}): Reply {
     return parse(this.#raw.fire(key, event, JSON.stringify(params)));
+  }
+
+  /**
+   * Fire an event as the host: as `fire`, and also an event that the machine
+   * marks with `source: host`, such as the result of the host's own checks.
+   */
+  fireAsHost(key: string | undefined, event: string, params: Record<string, unknown> = {}): Reply {
+    return parse(this.#raw.fireAsHost(key, event, JSON.stringify(params)));
   }
 
   stop(key: string, stopHookActive = false): StopDecision {
@@ -151,6 +190,33 @@ export class Engine {
 
   promptSubmitted(key: string): void {
     this.#raw.promptSubmitted(key);
+  }
+
+  /**
+   * The state's text for a model without tools: its instructions, the
+   * events that the model can answer with, and how to answer. Each JSON
+   * param shows its schema unless `schemas` is `false`.
+   */
+  stateText(key: string, options: StateTextOptions = {}): string {
+    return this.#raw.stateText(key, options.schemas ?? true);
+  }
+
+  /** The JSON Schema of a valid answer: a `oneOf` with one branch for each event of the model. */
+  answerSchema(key: string): Record<string, unknown> {
+    return parse(this.#raw.answerSchema(key));
+  }
+
+  /**
+   * Check the model's text answer: the event and its params, ready for
+   * `fire`, or a refusal to send back to the model. It fires nothing.
+   */
+  checkAnswer(key: string, text: string): CheckedAnswer {
+    return parse(this.#raw.checkAnswer(key, text));
+  }
+
+  /** The state's offered events in two lists: the model's, and the host's own. */
+  hostView(key: string): HostView {
+    return parse(this.#raw.hostView(key));
   }
 
   exportState(): State {

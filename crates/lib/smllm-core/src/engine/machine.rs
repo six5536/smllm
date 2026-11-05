@@ -2,11 +2,11 @@
 //! `yield`, `pause`, `unmatched`, `resume` (from a fallback state).
 
 use crate::Error;
-use crate::engine::offer::{check_params, machine_offers};
+use crate::engine::offer::{ParamValue, agent_offers, check_params, for_agent, machine_offers};
 use crate::engine::turn::{Turn, lists};
 use crate::engine::{Location, Reply, idle};
 use crate::host::{HostError, Store};
-use crate::model::{ActionDef, Config, Machine};
+use crate::model::{ActionDef, Config, Machine, State};
 use crate::prelude::*;
 use crate::record::{HistoryEntry, Instance, InstanceKey, Status};
 use crate::render::{Block, format_utc, header, quote};
@@ -38,7 +38,7 @@ impl Gone {
 fn when_gone(
     turn: &mut Turn<'_, '_>,
     gone: Gone,
-    params: &[(String, String)],
+    params: &[(String, ParamValue)],
 ) -> Result<Reply, Error> {
     let event = turn.event.as_str();
     match gone {
@@ -80,6 +80,11 @@ pub(crate) fn held<'c>(
         return idle::reply(turn, false, Some(msg)).map(|r| Err(Gone::Unconfigured(Box::new(r))));
     };
     let inst = turn.host.store.instance(&key.machine, &key.id)?;
+    if turn.audit
+        && let Some(i) = &inst
+    {
+        turn.before = Some(i.state.clone());
+    }
     match inst {
         Some(i) if i.held_by(&turn.session.key, Status::Active) => Ok(Ok((machine, i))),
         Some(i) => {
@@ -161,17 +166,22 @@ pub(crate) fn view_held(
     entry: bool,
 ) -> Reply {
     if entry && let Some(state) = machine.state(&inst.state) {
-        // Re-render the state's entry prompts only; commands are not re-run.
-        for (_, list) in lists(machine, &state.name, &state.entry, true) {
-            for a in list {
-                if let ActionDef::Prompt(p) = a {
-                    turn.prompt(p);
-                }
-            }
-        }
+        entry_prompts(turn, machine, state);
     }
     missing_state_note(turn, machine, inst);
     block(turn, machine, inst, None, entry, true, None)
+}
+
+/// Gather the state's entry prompts again, shared ones included, without
+/// running its commands.
+pub(crate) fn entry_prompts(turn: &mut Turn<'_, '_>, machine: &Machine, state: &State) {
+    for (_, list) in lists(machine, &state.name, &state.entry, true) {
+        for a in list {
+            if let ActionDef::Prompt(p) = a {
+                turn.prompt(p);
+            }
+        }
+    }
 }
 
 fn missing_state_note(turn: &mut Turn<'_, '_>, machine: &Machine, inst: &Instance) {
@@ -240,9 +250,11 @@ fn block(
         b.instructions(&turn.prompts);
     }
     if events {
-        let offers = machine_offers(machine, machine.state(&inst.state), inst);
-        b.events(&turn.session.key, &offers);
+        let offers = agent_offers(machine, machine.state(&inst.state), inst);
+        let key = turn.session.key.clone();
+        turn.events(&mut b, &key, &offers);
     }
+    turn.refusal = error;
     Reply {
         ok,
         session: turn.session.key.clone(),
@@ -274,16 +286,35 @@ fn reject(
 
 /// Fire an event in a machine state.
 // sokf-implements: AGT-3_AC-2
-pub(crate) fn fire(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, Error> {
+pub(crate) fn fire(
+    turn: &mut Turn<'_, '_>,
+    params: &[(String, ParamValue)],
+) -> Result<Reply, Error> {
     let (machine, mut inst) = match held(turn, true)? {
         Ok(p) => p,
         Err(gone) => return when_gone(turn, gone, params),
     };
     let state = machine.state(&inst.state);
     let offers = machine_offers(machine, state, &inst);
+    // The host sees every event; the agent's list leaves out the host's own.
+    let as_host = turn.as_host;
+    let names = || {
+        let shown = offers
+            .iter()
+            .filter(|o| as_host || for_agent(machine, &o.name));
+        join(shown.map(|o| o.name.as_str()))
+    };
+    // sokf-implements: AGT-3_AC-5
+    if !as_host && !for_agent(machine, &turn.event) {
+        let msg = format!(
+            "{} is an event that only the host fires (offered: {})",
+            turn.event,
+            names()
+        );
+        return reject(turn, machine, &inst, msg);
+    }
     let Some(offer) = offers.iter().find(|o| o.name == turn.event) else {
-        let names = join(offers.iter().map(|o| o.name.as_str()));
-        let msg = format!("{} is not offered here (offered: {})", turn.event, names);
+        let msg = format!("{} is not offered here (offered: {})", turn.event, names());
         return reject(turn, machine, &inst, msg);
     };
     match check_params(offer, params, turn.host.matcher) {
@@ -508,13 +539,7 @@ pub(crate) fn save(
         Err(e) => return Err(e.into()),
     }
     // sokf-implements: AGT-1_AC-3
-    let mut trace = Vec::new();
-    trace.extend(turn.notes.iter().cloned());
-    for p in &turn.passed {
-        trace.push(format!("Passed through: {p}"));
-    }
-    trace.extend(turn.trace.iter().cloned());
-    trace.extend(turn.failures.iter().cloned());
+    let trace = turn.trace_lines();
     let entry = HistoryEntry {
         at: turn.now,
         session: turn.session.key.clone(),
@@ -531,6 +556,9 @@ pub(crate) fn save(
     turn.host
         .store
         .append_history(&inst.machine, &inst.id, &entry)?;
+    if turn.audit {
+        turn.logged = Some(entry.trace);
+    }
     turn.host.store.put_session(&turn.session)?;
     Ok(Ok(()))
 }

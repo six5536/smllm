@@ -5,6 +5,6 @@ mod machine;
 
 pub use action::{ActionDef, GuardDef, Prompt, Value};
 pub use machine::{
-    Config, EventDef, InstanceSpec, Machine, On, ParamSpec, Position, SharedAction, State,
-    Transition,
+    Config, EventDef, InstanceSpec, Machine, On, ParamKind, ParamSpec, Position, SharedAction,
+    State, Transition,
 };

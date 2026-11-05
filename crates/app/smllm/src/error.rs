@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// I/O at a path.
-    #[error("{path}: {source}")]
+    #[error("{}: {source}", smllm_format::path_text(path))]
     Io {
         /// The path.
         path: PathBuf,

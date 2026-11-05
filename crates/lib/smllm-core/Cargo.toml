@@ -24,12 +24,13 @@ std = []
 # machine JSON (`smllm compile`) and the stores' file formats.
 serde = ["dep:serde"]
 # smllm-json impls writing and reading the serde feature's JSON, byte for
-# byte: `smllm-wasm` uses them, for a smaller wasm.
-json = ["dep:smllm-json"]
+# byte: `smllm-wasm` uses them, for a smaller wasm. The engine itself always
+# uses smllm-json, to read a JSON param's value.
+json = []
 
 [dependencies]
 serde = { workspace = true, optional = true }
-smllm-json = { workspace = true, optional = true }
+smllm-json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

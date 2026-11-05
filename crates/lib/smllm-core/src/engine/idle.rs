@@ -3,7 +3,7 @@
 
 use crate::Error;
 use crate::engine::machine::{self, commit, owned, takeover_note};
-use crate::engine::offer::{check_value, idle_offers};
+use crate::engine::offer::{ParamValue, check_value, idle_offers, text_params};
 use crate::engine::turn::Turn;
 use crate::engine::{Location, Reply, api::random_id};
 use crate::host::newest_first;
@@ -78,9 +78,10 @@ fn list(
     b.lines(&turn.notes)
         .lines(&turn.trace)
         .lines(&turn.failures);
-    if let Some(e) = error {
+    if let Some(e) = &error {
         b.line(&format!("error: {e}"));
     }
+    turn.refusal = error;
     // Prompts gathered so far (a paused or interrupted state's exit prompts)
     // come first, then idle's own.
     for a in &turn.config.idle {
@@ -150,7 +151,7 @@ fn list(
         interrupted.as_ref().map(|(m, i)| (*m, i)),
         (total > IDLE_PAUSED).then_some(total),
     );
-    b.events(key, &offers);
+    turn.events(b, key, &offers);
     Ok(())
 }
 
@@ -215,7 +216,7 @@ fn list_paused(turn: &mut Turn<'_, '_>) -> Result<Reply, Error> {
         interrupted.as_ref().map(|(m, i)| (*m, i)),
         (total > IDLE_PAUSED).then_some(total),
     );
-    b.events(&key, &offers);
+    turn.events(&mut b, &key, &offers);
     Ok(Reply {
         ok: true,
         session: key,
@@ -225,10 +226,17 @@ fn list_paused(turn: &mut Turn<'_, '_>) -> Result<Reply, Error> {
 }
 
 /// Fire `enter`, `resume` or `listPaused` in idle.
-pub(crate) fn fire(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, Error> {
+pub(crate) fn fire(
+    turn: &mut Turn<'_, '_>,
+    params: &[(String, ParamValue)],
+) -> Result<Reply, Error> {
     let listable = turn.event == "listPaused" && more_paused(turn)?;
     match turn.event.as_str() {
-        "enter" => enter(turn, params),
+        // enter's params are all strings.
+        "enter" => match text_params("enter", params) {
+            Ok(p) => enter(turn, &p),
+            Err(e) => reply(turn, false, Some(e)),
+        },
         "listPaused" if listable => {
             if let Some((n, _)) = params.first() {
                 return reply(
@@ -307,6 +315,18 @@ fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, 
         );
         return reply(turn, false, Some(msg));
     };
+    // sokf-implements: ENG-6_AC-2
+    if turn.under_harness {
+        let hosts = machine.events.iter().filter(|(_, e)| e.host_only);
+        let names = join(hosts.map(|(n, _)| n));
+        if !names.is_empty() {
+            let msg = format!(
+                "state machine {} needs a host to drive it: only the host fires its events {names}",
+                machine.id
+            );
+            return reply(turn, false, Some(msg));
+        }
+    }
     let ref_param = machine.instance.ref_param.as_str();
     for (i, (k, _)) in params.iter().enumerate() {
         // One value per param: a repeat would reach the command environment

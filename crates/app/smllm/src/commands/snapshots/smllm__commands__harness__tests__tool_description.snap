@@ -9,4 +9,4 @@ smllm runs state machines that guide your work. Everything smllm says is fenced 
 - To see where you are and what you can fire, call smllm with no event.
 - Only the main agent calls smllm. Never pass the session key to subagents.
 
-To see where you are, call with { session } alone. To fire an event, call with { session, event, params }. params is an object of strings.
+To see where you are, call with { session } alone. To fire an event, call with { session, event, params }. params is an object of strings, except that a param that the events list shows as a JSON value takes any JSON value.

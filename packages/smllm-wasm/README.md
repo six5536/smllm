@@ -6,11 +6,13 @@ or Node. The large language model (LLM) can run anywhere. The API is typed: it t
 objects, and the package includes TypeScript declarations.
 
 This README helps you run the engine in your own host. It shows a first example, then describes
-the host methods, storage, the Node helpers, and when to use the WebAssembly engine instead of the
-CLI.
+the host methods, storage, the events that only the host fires, machines that the host drives for
+a model without tools, the Node helpers, and when to use the WebAssembly engine instead of the CLI.
 
 - [Host](#host)
 - [Storage](#storage)
+- [Host-only events](#host-only-events)
+- [Host-driven machines](#host-driven-machines)
 - [Run in Node](#run-in-node)
 - [WebAssembly or CLI](#webassembly-or-cli)
 - [Licence](#licence)
@@ -43,6 +45,10 @@ const stop = engine.stop(session, stopHookActive);
 // "runaway": let it stop, show stop.text to the user; "allow": let it stop.
 ```
 
+A param takes a string. A param that the machine declares with `type: json` takes any JSON value,
+in `callTool`, `fire`, and `fireAsHost`, and the host receives its compact JSON text. A JSON string stays a string, even when its text spells an object. The events list shows
+the param as a JSON value, with its JSON Schema.
+
 The `examples/wasm` folder of the [smllm repository](https://github.com/six5536/smllm) holds a
 whole agent loop, in TypeScript.
 
@@ -63,6 +69,7 @@ host leaves the method out:
 - `random()` returns a random number. By default, it uses `crypto.getRandomValues`.
 - `history(machine, id, entry)` and `put(kind, key, record)` receive writes. By default, the
   engine drops them.
+- `wantsAudit()` and `audit(entry, reply)` keep an audit, as the following section describes.
 
 A host method that throws is a host failure: a failed guard or action, or a rejected pattern. The
 reply text shows the failure, and the engine stays usable.
@@ -79,6 +86,133 @@ write.
 `memoryStorage()` keeps the state in memory. In a browser, you can write a `Storage` over
 IndexedDB, or one that sends the records to a server. `exportState()` and `importState(state)`
 move the whole state at once, for backups and moves.
+
+## Audit
+
+An audit records every call that drove a session, accepted or refused: `bind`, `callTool`,
+`events`, `fire`, `fireAsHost`, and `stop`. `view`, `status`, and `promptSubmitted` record
+nothing. To keep an audit, give the storage or the host `wantsAudit()`, which returns true, and
+`audit(entry, reply)`, which receives each `AuditEntry` and the text of the call's reply:
+
+```ts
+const storage = {
+  ...memoryStorage(),
+  wantsAudit: () => true,
+  audit(entry: AuditEntry, reply: string) {
+    console.log(entry.source, entry.call, entry.event, entry.outcome, entry.reason);
+  },
+};
+```
+
+An entry holds the time, the session, the source (`agent`, or `host` for `fireAsHost`), the call,
+the instance with its states before and after, the params, the names of the events that the reply
+offered, the outcome with the reason for a refusal, and for a call that created the session its
+binding. Keep what you need of the reply's text. A hash names its algorithm, as `sha256:` and the
+hex of the SHA-256 of the text's UTF-8 bytes, which is the default that the `smllm` CLI uses.
+
+## Host-only events
+
+A host-only event is an event that only the host fires, such as the result of checks that the host
+runs outside the machine. A machine marks it with `source: host` in `meta.events`:
+
+```yaml
+meta:
+  smllm: 1
+  events:
+    checksPassed: { source: host }
+    checksFailed: { source: host }
+states:
+  WORK:
+    on: { submit: CHECKING }
+  CHECKING:
+    on: { checksPassed: DONE, checksFailed: WORK }
+  DONE: { type: final }
+```
+
+The agent never sees a host-only event: the events lists of the tool's replies, of `view`, of
+`events`, and of `stop` leave it out. `fire` and `callTool` refuse it with an error that names it
+as an event that only the host fires. The host fires it with `fireAsHost`, which takes the same
+arguments as `fire` and fires any event that the state offers:
+
+```js
+engine.callTool({ session, event: "submit" }); // the agent: WORK → CHECKING
+const passed = await runChecks(); // your own checks, which can be async
+engine.fireAsHost(session, passed ? "checksPassed" : "checksFailed");
+```
+
+Fire an event that the agent chose with `fire` or `callTool`, never with `fireAsHost`, because
+`fireAsHost` would then take a host-only event from the agent. Keep `fireAsHost` for the host's
+own events.
+
+`source: host` is a security boundary only when the host drives a model without tools. An agent
+that runs under a harness, such as Claude Code, usually has a shell, and there the marker
+prevents mistakes rather than an attack. A harness has no host to fire the events, so the smllm
+CLI refuses to start an instance of such a machine, and `smllm validate` notes that the machine
+needs a host to drive it.
+
+## Host-driven machines
+
+A host can drive a machine for a model that has no tools and only answers in text, such as a
+model that the host calls through the Messages API with no tools. The host shows the model the
+state, reads its answer as one event, runs its own checks, and fires the results. Four methods
+serve it, and none of them changes anything:
+
+- `hostView(key)` returns `{ location, model, host }`: where the session is, the events that the
+  model can fire, and the events that only the host fires. Each event has its `name`,
+  `description`, and `params`, and a JSON param has its bundled `schema` as an object.
+- `stateText(key, { schemas })` returns the state's text for the model: its instructions, the
+  model's events with their params, and a request to answer with one event as JSON. Each JSON
+  param shows its schema, unless `schemas` is `false`.
+- `answerSchema(key)` returns a JSON Schema of a valid answer, as an object, for a model that can
+  constrain its output, such as the Claude API's structured outputs.
+- `checkAnswer(key, text)` reads the model's answer, a bare JSON object or one fenced block with
+  nothing outside it. It returns `{ ok: true, event, params }`, whose params are plain
+  JavaScript values ready for `fire`, or `{ ok: false, error }`, whose error the host sends back
+  to the model as it stands. Every malformed answer gets the same error.
+
+This loop runs a machine from start to end. The machine is an extractor builder for bank
+statements, which is in the `examples/extractor` folder of the smllm repository. The model
+answers with an extractor, a JSON value with a schema, or asks for more pages. The host checks
+the extractor and fires `checks_passed` or `checks_failed`, and the machine gives up after five
+attempts:
+
+```js
+const engine = new Engine(compiled, {}, memoryStorage());
+// A keyless `enter` creates the session and starts the machine in one call.
+const { session } = engine.fire(undefined, "enter", { stateMachine: "extractor-build" });
+for (;;) {
+  const view = engine.hostView(session);
+  if (view.location.machine === null) break; // a final state: the session is idle again
+  if (view.model.length > 0) {
+    let prompt = `${engine.stateText(session)}\n${statement}`;
+    for (;;) {
+      const answer = engine.checkAnswer(session, await askModel(prompt)); // your adapter
+      if (answer.ok) {
+        engine.fire(session, answer.event, answer.params); // the model chose the event
+        if (answer.event === "extractor") extractor = answer.params.json;
+        break;
+      }
+      prompt = answer.error; // the refusal, as it stands; count it as an attempt
+    }
+  } else {
+    const errors = await runChecks(extractor); // your checks, which can be async
+    if (errors.length === 0) engine.fireAsHost(session, "checks_passed");
+    else engine.fireAsHost(session, "checks_failed", { errors: errors.join("\n") });
+  }
+}
+```
+
+The model is never offered a built-in event, such as `yield`, `pause`, or `unmatched`, or a
+host-only event, because those belong to whoever drives the session, which here is the host. The
+host fires them as it needs them. An outcome that the model can choose, such as "I can't do this"
+or "ask the user", is an event that the machine declares.
+
+One machine can mix the model's steps, the host's deterministic steps, and a person's steps. A
+state that offers the model events is a step of the model. A state whose events are all the
+host's is a step of the host, such as `CHECKING`, or a person's step, such as an approval for
+which the host fires the person's decision. A state that offers both lists is a step of the model
+that the host can interrupt: the extractor builder's `READ` offers the host `timed_out`, which the
+host fires when the model takes too long.
 
 ## Run in Node
 

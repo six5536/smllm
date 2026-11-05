@@ -60,6 +60,39 @@ export interface HistoryEntry {
 }
 
 /**
+ * One audit entry: a call that drove a session, accepted or refused, handed
+ * to `audit` with the text of its reply when the host or the storage wants
+ * an audit.
+ */
+export interface AuditEntry {
+  /** Unix ms. */
+  at: number;
+  session: string;
+  /** `host` for `fireAsHost`, else `agent`. */
+  source: "agent" | "host";
+  /** `view` is a tool call with no event. */
+  call: "bind" | "view" | "menu" | "fire" | "stop";
+  event: string | null;
+  machine: string | null;
+  instance: string | null;
+  /** The instance's state before the call. */
+  from: string | null;
+  /** The state where the session is after the call. */
+  to: string | null;
+  /** Each param as its text, a JSON value as its compact JSON. */
+  params: Record<string, string>;
+  /** The names of the events that the reply offered. */
+  offered: string[];
+  /** `accepted` or `refused`; for `stop`, the decision. */
+  outcome: "accepted" | "refused" | "allow" | "block" | "runaway";
+  /** Why the engine refused the call. */
+  reason: string | null;
+  trace: string[];
+  /** The binding of the session that the call created. */
+  binding: { harness: string; hostSession: string | null; cwd: string; configs: string[] } | null;
+}
+
+/**
  * What the engine needs from its host. Every method is optional:
  * - `supports`, `check`, `run`: host guard/action kinds (`command`); none by default.
  *   A command's `params.cwd` is relative to the compiled config file (`nodeHost`'s `configDir`).
@@ -68,6 +101,9 @@ export interface HistoryEntry {
  * - `now`, `random`: `Date.now()` and `crypto.getRandomValues` by default.
  * - `history`: each history entry as it happens; dropped by default.
  * - `put`: each session, binding and instance as it is saved (write-through storage); dropped by default.
+ * - `wantsAudit`, `audit`: whether to keep an audit, false by default, and each audit entry with the
+ *   text of its reply. The host keeps what it likes of the text, such as `sha256:` and the hex of the
+ *   SHA-256 of its UTF-8 bytes, the default that `smllm` uses.
  * A method that throws is a host failure the engine reports, never a broken engine.
  */
 export interface Host {
@@ -81,6 +117,8 @@ export interface Host {
   random?(): number;
   history?(machine: string, id: string, entry: HistoryEntry): void;
   put?(kind: RecordKind, key: string, record: unknown): void;
+  wantsAudit?(): boolean;
+  audit?(entry: AuditEntry, reply: string): void;
 }
 
 /** What `put` hands on: a session (key: its key), a binding (`harness/hostSession`, record: the session key) or an instance (`machine/id`). */
@@ -89,12 +127,17 @@ export type RecordKind = "session" | "binding" | "instance";
 /**
  * Where an engine's state lives (WASM-2): `load` once, into `importState`;
  * then each saved record through `put` and each history entry through
- * `history`, as they happen, so persisting costs what changed.
+ * `history`, as they happen, so persisting costs what changed; and, when
+ * `wantsAudit` returns true, each audit entry through `audit`.
  */
 export interface Storage {
   load(): State | undefined;
   put(kind: RecordKind, key: string, record: unknown): void;
   history(machine: string, id: string, entry: HistoryEntry): void;
+  /** Whether the storage keeps an audit; false when absent. */
+  wantsAudit?(): boolean;
+  /** Each audit entry, with the text of the call's reply. */
+  audit?(entry: AuditEntry, reply: string): void;
 }
 
 /** The agent-facing `smllm` tool: the same definition the MCP server offers. */
@@ -109,8 +152,53 @@ export interface Tool {
 export interface ToolArgs {
   session?: string;
   event?: string;
-  params?: Record<string, string>;
+  /** A string for each param, or any JSON value for a param that the events list shows as a JSON value. */
+  params?: Record<string, unknown>;
 }
+
+/** How `stateText` renders the state. */
+export interface StateTextOptions {
+  /** Show each JSON param's schema; `true` by default. */
+  schemas?: boolean;
+}
+
+/** A param of an offered event. */
+export interface OfferedParam {
+  name: string;
+  required: boolean;
+  /** `json`: the param takes any JSON value. */
+  type: "string" | "json";
+  /** The allowed values; empty when any string is allowed. */
+  enum: string[];
+  pattern: string | null;
+  description: string | null;
+  /** A JSON param's JSON Schema, bundled, or `null`. */
+  schema: Record<string, unknown> | boolean | null;
+}
+
+/** An event that the state offers. */
+export interface Offered {
+  name: string;
+  description: string | null;
+  params: OfferedParam[];
+}
+
+/**
+ * The state as a host that drives the machine sees it: the events that the
+ * model can answer with, and the events that only the host fires (with
+ * `fireAsHost`). Neither list holds the built-in events, which the host
+ * fires as it needs them.
+ */
+export interface HostView {
+  location: Location;
+  model: Offered[];
+  host: Offered[];
+}
+
+/** A model's answer, checked: the event and its params, ready for `fire`, or the refusal to send back to the model. */
+export type CheckedAnswer =
+  | { ok: true; event: string; params: Record<string, unknown> }
+  | { ok: false; error: string };
 
 /** Sessions, bindings and instances by key, as `exportState` returns them and `importState` takes them. */
 export interface State {

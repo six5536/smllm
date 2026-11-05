@@ -1,10 +1,12 @@
 //! One engine call's working state, and the transition machinery: guards,
 //! exit → actions → entry, `always` chains, visits (AGT-3, DEC, ACT).
 
+use crate::engine::Offer;
 use crate::host::{Call, Host};
 use crate::model::{ActionDef, Config, GuardDef, Machine, Position, Prompt, Transition, Value};
 use crate::prelude::*;
-use crate::record::{Instance, Session};
+use crate::record::{Instance, InstanceKey, Session};
+use crate::render::Block;
 use crate::utils::{SmallMap, join_with};
 
 /// Longest `always` chain before the engine gives up (AGT-5).
@@ -33,6 +35,23 @@ pub(crate) struct Turn<'a, 'h> {
     /// A keyless `enter` made the session: it is saved only if the call is
     /// accepted, so a rejection must not show its key (AGT-3).
     pub unsaved: bool,
+    /// The host fires the event, through `fire_as_host` (ENG-6).
+    pub as_host: bool,
+    /// The engine runs under a harness, so no host fires events (ENG-6).
+    pub under_harness: bool,
+    /// The store wants an audit entry of this call (ENG-11): only then are
+    /// `held`, `before`, `offered` and `logged` kept.
+    pub audit: bool,
+    /// The instance the session held when the call began.
+    pub held: Option<InstanceKey>,
+    /// Its state then, once read.
+    pub before: Option<String>,
+    /// The names of the events the reply offers.
+    pub offered: Vec<String>,
+    /// The trace of the history entry the call wrote.
+    pub logged: Option<Vec<String>>,
+    /// The error line of the reply: why the call was refused.
+    pub refusal: Option<String>,
 }
 
 /// `issueId` → `ISSUE_ID`.
@@ -83,7 +102,37 @@ impl<'a, 'h> Turn<'a, 'h> {
             failures: Vec::new(),
             prompts: Vec::new(),
             unsaved: false,
+            as_host: false,
+            under_harness: false,
+            audit: false,
+            held: None,
+            before: None,
+            offered: Vec::new(),
+            logged: None,
+            refusal: None,
         }
+    }
+
+    /// Notes, the states passed through, guard results and failures: the
+    /// trace of a history or audit entry (AGT-1).
+    pub(crate) fn trace_lines(&self) -> Vec<String> {
+        let mut trace = self.notes.clone();
+        for p in &self.passed {
+            trace.push(format!("Passed through: {p}"));
+        }
+        trace.extend(self.trace.iter().cloned());
+        trace.extend(self.failures.iter().cloned());
+        trace
+    }
+
+    /// The events list of `offers` on `b`, its names kept for the audit.
+    pub(crate) fn events(&mut self, b: &mut Block, key: &str, offers: &[Offer]) {
+        if self.audit {
+            for o in offers {
+                self.offered.push(o.name.clone());
+            }
+        }
+        b.events(key, offers);
     }
 
     /// The command environment (ENG-4, CLI-11).

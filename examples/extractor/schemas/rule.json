@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "field": { "enum": ["date", "description", "amount", "balance"] },
+    "pattern": { "type": "string" }
+  },
+  "required": ["field", "pattern"],
+  "additionalProperties": false
+}

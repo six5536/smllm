@@ -26,6 +26,7 @@ Code, Devin, and any agent that reads `AGENTS.md`.
 - [Project layout](#project-layout)
 - [Development](#development)
 - [Licence](#licence)
+- [Third-party notices](#third-party-notices)
 
 ## Features
 
@@ -39,15 +40,26 @@ Code, Devin, and any agent that reads `AGENTS.md`.
   once. You can pause an instance, detour from it, resume it, reopen it, or let another session
   take it over.
 - Built-in events: `enter`, `resume`, `pause`, `unmatched` (a detour), `yield`, and `listPaused`. The idle list shows the 10 most recently updated paused instances, and `listPaused` lists them all.
+- Host-only events: a machine marks an event with `source: host` when only the host that embeds
+  the engine fires it, such as the result of the host's own checks. The agent never sees the event,
+  and the tool refuses it. A harness can't start such a machine, and `smllm validate` notes that it
+  needs a host.
 - Guards (`command`, `visits`) and actions (`prompt`, `command`, `setRef`), in XState's
   `{type, params}` form. A command receives its input only through environment variables.
+- Params: a param is a string, which `enum` or `pattern` can limit, or, with `type: json`, any
+  JSON value, which the host receives as compact JSON text. A JSON param can give a JSON Schema,
+  draft-07 or 2020-12, as a path or inline. smllm bundles the schema and the files that its
+  `$ref`s name when it loads the machine, and shows it to the agent in the list of events.
 - `smllm statusline` shows the current machine, state, and instance as a coloured row in Claude
   Code's status line, or as JSON for a row of your own. To set it up, ask Claude to "add smllm to
   my status line". The [status line guide](docs/statusline.md) has the details.
 - `smllm validate` reports each finding as `file:line`, and ends it with the code of the rule that
   it breaks. [The rules of smllm validate](docs/validate-rules.md) says what each rule checks.
-- `smllm graph` prints text, JSON, or Mermaid. `smllm info schema` prints a JSON Schema for
-  completion in your editor.
+- `smllm graph` prints text, JSON, or Mermaid. With `--open`, it opens the machine as a diagram in
+  your web browser, where you select a state or a transition to read its prompts, commands, guards,
+  and events. `--html FILE` writes the same page to keep or share, and `--png FILE` writes the
+  diagram as a picture, one for each machine: with several machines, `--png m.png` writes
+  `m-ID.png` for each machine `ID`. `smllm info schema` prints a JSON Schema for completion in your editor.
 - `@six5536/smllm-wasm` runs the engine in a browser or a Node host, from the output of
   `smllm compile`.
 
@@ -109,7 +121,8 @@ These commands create a config, scaffold a state machine, check it, and draw it:
 smllm init                  # .smllm/config.toml
 smllm new dev --write       # .smllm/dev.smllm.yaml, listed in the config
 smllm validate --warnings   # findings as file:line: level: message (rule)
-smllm graph dev --mermaid
+smllm graph dev --open      # the diagram in your web browser
+smllm graph dev --png dev.png
 ```
 
 Here is a state machine. The [`examples/` folder](examples/) has the full showcase.
@@ -137,6 +150,23 @@ states:
     type: final
 ```
 
+An event can take structured data as a JSON param. The path of its schema is relative to the
+machine file, and can lead outside the machine's folder:
+
+```yaml
+meta:
+  events:
+    planned:
+      params:
+        type: object
+        properties:
+          plan: { type: json, schema: ../schemas/plan.schema.json, description: "The plan." }
+        required: [plan]
+```
+
+The agent sends the plan as a JSON object, not as a string, and the list of events shows the
+param as `plan (required, a JSON value, schema: {…})`.
+
 When the agent tries to stop in `WORK`, it sees this:
 
 ```
@@ -160,23 +190,28 @@ smllm has these other commands:
   [status line guide](docs/statusline.md) describes.
 - `smllm session list|show` and `smllm instance list|show` list sessions and instances, or show
   one.
+- `smllm session show KEY --audit [--json]` prints the session's audit: one line for each call
+  that drove the session, accepted or refused, with its time, its source (`agent` or `host`), the
+  call, the state, and the outcome. With `--json`, it prints the audit file's JSON lines.
 - `smllm harness status <harness>…` shows what is installed for each harness.
 - `smllm compile` writes the validated model as JSON for `@six5536/smllm-wasm`.
 - `smllm completions <shell>` prints a shell completion script.
 
 In these commands, `KEY` is a session key, `EVENT` is the name of an event, and `k=v` gives the
-parameter `k` the value `v`. `<harness>` is the name of a harness, such as `claude`, and `<shell>`
+parameter `k` the value `v`, which a JSON param reads as JSON text, such as `plan={"steps":[]}`. `<harness>` is the name of a harness, such as `claude`, and `<shell>`
 is the name of a shell.
 
 smllm exits with `0` on success, `1` when it finds errors (config errors, a rejected event, or a
 failed hook), and `2` on a usage or internal error. `smllm statusline` always exits with `0`, so
 that it never blanks a status line. Errors go to stderr with the prefix `error: `, and `--json`
-prints exactly one object.
+prints exactly one object, except for an audit, which it prints as JSON lines.
 
 smllm reads `.smllm/config.toml` in the project and combines it with
 `~/.config/smllm/config.toml`. When both define the same state machine ID, the project's wins.
 Instances live in `.smllm/state/`, which is git-ignored. Sessions live in `~/.local/state/smllm/`,
-and a copy of each load of your machines, which is safe to delete, lives in `~/.cache/smllm/`.
+with each session's audit in `audit/KEY.jsonl` there, which smllm keeps until you remove it. Each
+line of an audit holds the hash of the reply that the agent was shown, as `sha256:` and the hex of
+the SHA-256 of the reply's UTF-8 text, not the text itself. A copy of each load of your machines, which is safe to delete, lives in `~/.cache/smllm/`.
 
 ## Project layout
 
@@ -216,3 +251,40 @@ bug or ask for a feature, and how to build the packages of a release.
 ## Licence
 
 smllm is licensed under the MIT licence. The [LICENSE](LICENSE) file has the full text.
+
+## Third-party notices
+
+The smllm binary embeds the JSON Schema meta-schemas of draft-07 and draft 2020-12, which json-schema.org
+publishes in the [json-schema-spec repository](https://github.com/json-schema-org/json-schema-spec),
+to check the schema of each JSON param. They are under the BSD 3-Clause licence:
+
+```text
+Copyright (c) 2022 JSON Schema Specification Authors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```

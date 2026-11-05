@@ -4,6 +4,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
+use crate::JsonValue;
+
 /// A value that writes itself as JSON.
 pub trait ToJson {
     /// Append `self` as JSON to `out`.
@@ -149,6 +151,30 @@ impl<T: ToJson> ToJson for Vec<T> {
     }
 }
 
+/// A parsed tree as compact JSON: a number as written, the fields of an
+/// object in their order, duplicates included.
+// sokf-implements: JSON-3_AC-4
+impl ToJson for JsonValue {
+    fn write_json(&self, out: &mut String) {
+        match self {
+            JsonValue::Null => out.push_str("null"),
+            JsonValue::Bool(b) => b.write_json(out),
+            JsonValue::Int(n) => n.write_json(out),
+            JsonValue::UInt(n) => n.write_json(out),
+            JsonValue::Number(n) => out.push_str(n),
+            JsonValue::String(s) => write_str(out, s),
+            JsonValue::Array(items) => items.write_json(out),
+            JsonValue::Object(fields) => {
+                let mut o = object(out);
+                for (k, v) in fields {
+                    o.field(k, v);
+                }
+                o.end();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +207,15 @@ mod tests {
         object(&mut empty).end();
         assert_eq!(empty, "{}");
         assert_eq!(to_string(&Vec::<u32>::new()), "[]");
+    }
+
+    #[test]
+    fn a_parsed_tree_writes_compactly_as_parsed() {
+        let text =
+            " { \"a\" : [ null , true, -1, 18446744073709551615, 2.50, \"x\\n\" ], \"a\": {} } ";
+        assert_eq!(
+            to_string(&crate::parse(text).unwrap()),
+            r#"{"a":[null,true,-1,18446744073709551615,2.50,"x\n"],"a":{}}"#
+        );
     }
 }

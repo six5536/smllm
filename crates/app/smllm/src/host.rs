@@ -2,7 +2,6 @@
 //! the clock and randomness (CLI-11..9, CLI-11).
 
 use std::io::Read;
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -244,13 +243,14 @@ impl Action for Commands {
     }
 }
 
-/// Prompt files from disk, read at request time (ENG-4).
+/// Prompt files from disk, read at request time through the loader's own
+/// source (ENG-4, FMT-11).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Files;
 
 impl InstructionSource for Files {
     fn read(&self, file: &str) -> Result<Option<String>, String> {
-        agent_harness_adapter_core::fs::read_text(Path::new(file)).map_err(|e| e.to_string())
+        smllm_format::FileSource.read(file)
     }
 }
 

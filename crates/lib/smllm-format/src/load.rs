@@ -4,11 +4,13 @@
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use smllm_core::host::InstructionSource;
 use smllm_core::model::{ActionDef, Config, Machine};
 
 use crate::finding::{Finding, Findings, Severity};
 use crate::lower::{Checker, Files, lower, lower_prompt};
 use crate::source::MachineFile;
+use crate::sources::FileSource;
 
 /// Which config a file is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,8 +70,9 @@ pub struct Loaded {
     /// Everything found.
     pub findings: Findings,
     /// Every file the load read or checked, found or not: the configs, their
-    /// machine files and the prompt files those name. The load is stale when
-    /// any of them changes (the MCP server's cache, MCP-1).
+    /// machine files, and the prompt files and schemas that those name. The
+    /// load is stale when any of them changes (the MCP server's cache,
+    /// MCP-1).
     pub inputs: Vec<PathBuf>,
 }
 
@@ -146,22 +149,39 @@ fn finding(
     }
 }
 
-/// Parse and lower one machine file.
+/// Parse and lower one machine file from the file system.
 // sokf-implements: FMT-6_AC-1
 pub fn load_machine(path: &Path, mode: Mode) -> (Option<Machine>, Findings) {
-    let (machine, findings, _) = load_machine_inputs(path, mode, "");
+    load_machine_from(&FileSource, path, mode)
+}
+
+/// Parse and lower the machine file at `path`, reading it, its prompt
+/// files, and its schemas through `source`, such as a
+/// [`MemorySource`](crate::MemorySource) (FMT-11).
+// sokf-implements: FMT-11_AC-1
+pub fn load_machine_from(
+    source: &dyn InstructionSource,
+    path: &Path,
+    mode: Mode,
+) -> (Option<Machine>, Findings) {
+    let (machine, findings, _) = load_machine_inputs(source, path, mode, "");
     (machine, findings)
 }
 
-/// [`load_machine`], and the prompt files it read or checked. `prefix` is
-/// the machine file's folder relative to the compiled file ([`Mode::Inline`]).
+/// [`load_machine_from`], and the other files it read or checked. `prefix`
+/// is the machine file's folder relative to the compiled file
+/// ([`Mode::Inline`]).
 fn load_machine_inputs(
+    source: &dyn InstructionSource,
     path: &Path,
     mode: Mode,
     prefix: &str,
 ) -> (Option<Machine>, Findings, Vec<PathBuf>) {
     let mut findings = Findings::default();
-    let text = match std::fs::read_to_string(path) {
+    let read = source
+        .read(&crate::system_path_text(path))
+        .and_then(|t| t.ok_or_else(|| "no such file".to_string()));
+    let text = match read {
         Ok(t) => t,
         Err(e) => {
             findings.push(finding(
@@ -211,7 +231,7 @@ fn load_machine_inputs(
     };
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut c = Checker::new(path, &text);
-    let files = Files::new(dir, mode).with_prefix(prefix);
+    let files = Files::new(source, dir, mode).with_prefix(prefix);
     let machine = lower(&mut c, &files, &parsed);
     findings.extend(c.findings);
     (machine, findings, files.probed())
@@ -291,7 +311,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
             idle = Some(match i.on_enter {
                 Some(p) => {
                     let mut c = Checker::new(&cf.path, &text);
-                    let files = Files::new(dir, mode);
+                    let files = Files::new(&FileSource, dir, mode);
                     let idle_p = crate::lower::YPath::ROOT.key("idle");
                     let at = idle_p.key("on-enter");
                     let prompt =
@@ -309,7 +329,8 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
             // `rel` as the config wrote it: its folder is the machine's,
             // relative to the config (D8-22).
             let prefix = rel.rsplit_once(['/', '\\']).map_or("", |(p, _)| p);
-            let (machine, findings, prompts) = load_machine_inputs(&file, mode, prefix);
+            let (machine, findings, prompts) =
+                load_machine_inputs(&FileSource, &file, mode, prefix);
             out.findings.extend(findings);
             out.inputs.push(file.clone());
             out.inputs.extend(prompts);
@@ -361,7 +382,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                     format!(
                         "machine {} here replaces the one in {}",
                         machine.id,
-                        out.machines[i].file.display()
+                        crate::path_text(&out.machines[i].file)
                     ),
                     "FMT-7",
                 ));
@@ -399,7 +420,7 @@ fn withdraw_replaced(out: &mut Loaded, file: &Path, config: &Path) {
         None,
         format!(
             "smllm does not use machine {id} in {} while this file, which replaces it, has errors",
-            earlier.file.display()
+            crate::path_text(&earlier.file)
         ),
         "FMT-7",
     ));

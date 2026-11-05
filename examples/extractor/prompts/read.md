@@ -1,0 +1,1 @@
+Write an extractor for the bank statement that follows: a JSON file of rules that turns each line of the statement that holds a date and an amount into one item. If the pages that you have don't show the statement's layout, ask for more pages.

@@ -55,7 +55,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
         );
     }
     let instance = lower_instance(c, file.meta.instance.as_ref());
-    let mut events = lower_events(c, &file.meta);
+    let mut events = lower_events(c, files, &file.meta);
 
     let mut states = Vec::new();
     let mut used_events = HashSet::new();

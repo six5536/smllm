@@ -36,13 +36,13 @@ macro_rules! source_keys {
 
 source_keys! {
     CommandParams => ["run", "timeoutSecs", "cwd"], ["run"];
-    EventMeta => ["description", "params"], [];
+    EventMeta => ["description", "params", "source"], [];
     InstanceMeta => ["kind", "ref"], [];
     MachineFile => ["id", "description", "initial", "meta", "states"], ["id", "initial", "meta", "states"];
     MachineMeta => ["smllm", "instance", "events", "sharedActions"], ["smllm"];
     ParamsSchema => ["type", "properties", "required"], ["type"];
     PromptParams => ["text", "file"], [];
-    PropSchema => ["type", "description", "enum", "pattern"], ["type"];
+    PropSchema => ["type", "description", "enum", "pattern", "schema"], [];
     RefMeta => ["param", "description", "pattern"], [];
     SharedActionSrc => ["states", "position", "entry", "exit"], ["states", "position"];
     StateMeta => ["entryPoint", "fallback", "paramDescriptions"], [];
@@ -251,6 +251,12 @@ impl Walk<'_, '_> {
                 if let Some(ps) = present(em.get("params")) {
                     self.params(&ep.key("params"), ps);
                 }
+                self.one_of(
+                    &ep.key("source"),
+                    em.get("source"),
+                    &["agent", "host"],
+                    "FMT-4",
+                );
             }
         }
         match present(m.get("sharedActions")) {
@@ -292,6 +298,12 @@ impl Walk<'_, '_> {
                     self.string(&pp.key(k), pm.get(k));
                 }
                 self.strings(&pp.key("enum"), pm.get("enum"));
+                // The schema's own keys are JSON Schema's, which the loader
+                // checks against the schema's draft (FMT-10).
+                match present(pm.get("schema")) {
+                    None | Some(Value::String(_) | Value::Object(_)) => {}
+                    Some(v) => self.wrong(&pp.key("schema"), "a path or a map", v),
+                }
             }
         }
     }
@@ -528,8 +540,55 @@ pub(crate) fn check(c: &mut Checker<'_>, doc: &Value) {
 }
 
 /// Null values → absent keys, and `{type: setRef, params: {}}` →
-/// `{type: setRef}` (serde's unit variant takes no content).
+/// `{type: setRef}` (serde's unit variant takes no content). An inline
+/// schema of a param stays as written, because a null in it is a value of
+/// JSON Schema, such as `const: null`.
 pub(crate) fn normalise(doc: &mut Value) {
+    let schemas = take_schemas(doc);
+    strip(doc);
+    for (event, param, schema) in schemas {
+        if let Some(p) = props_mut(doc, &event).and_then(|ps| ps.get_mut(&param)) {
+            p["schema"] = schema;
+        }
+    }
+}
+
+/// The `properties` of `meta.events.<event>.params`.
+fn props_mut<'d>(doc: &'d mut Value, event: &str) -> Option<&'d mut Map<String, Value>> {
+    doc.get_mut("meta")?
+        .get_mut("events")?
+        .get_mut(event)?
+        .get_mut("params")?
+        .get_mut("properties")?
+        .as_object_mut()
+}
+
+/// Take each param's inline schema out of `doc`, with its event and param.
+fn take_schemas(doc: &mut Value) -> Vec<(String, String, Value)> {
+    let mut out = Vec::new();
+    let events: Vec<String> = doc
+        .get("meta")
+        .and_then(|m| m.get("events"))
+        .and_then(Value::as_object)
+        .map(|e| e.keys().cloned().collect())
+        .unwrap_or_default();
+    for event in events {
+        let Some(props) = props_mut(doc, &event) else {
+            continue;
+        };
+        for (param, p) in props.iter_mut() {
+            if let Some(m) = p.as_object_mut()
+                && m.get("schema").is_some_and(Value::is_object)
+                && let Some(schema) = m.remove("schema")
+            {
+                out.push((event.clone(), param.clone(), schema));
+            }
+        }
+    }
+    out
+}
+
+fn strip(doc: &mut Value) {
     match doc {
         Value::Object(m) => {
             m.retain(|_, v| !v.is_null());
@@ -540,10 +599,10 @@ pub(crate) fn normalise(doc: &mut Value) {
                 m.remove("params");
             }
             for v in m.values_mut() {
-                normalise(v);
+                strip(v);
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(normalise),
+        Value::Array(items) => items.iter_mut().for_each(strip),
         _ => {}
     }
 }

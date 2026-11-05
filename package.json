@@ -25,7 +25,7 @@
     "install:local": "CARGO_BUILD_JOBS=4 cargo install --quiet --locked --path crates/app/smllm"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.6",
     "binaryen": "^132.0.0",
     "typescript": "^7.0.2"
   }

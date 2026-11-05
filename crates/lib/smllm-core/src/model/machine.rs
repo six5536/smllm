@@ -75,6 +75,11 @@ impl Machine {
         self.states.iter().map(|s| s.name.as_str())
     }
 
+    /// Whether `meta.events` marks `event` with `source: host`.
+    pub fn host_only(&self, event: &str) -> bool {
+        self.events.get(event).is_some_and(|e| e.host_only)
+    }
+
     /// The entry points' names, in order.
     pub(crate) fn entry_point_names(&self) -> impl Iterator<Item = &str> {
         self.entry_points().map(|s| s.name.as_str())
@@ -122,6 +127,13 @@ pub struct EventDef {
     pub description: Option<String>,
     /// Params, in declaration order.
     pub params: Vec<ParamSpec>,
+    /// `source: host`: only the host fires the event, through
+    /// `Engine::fire_as_host`, and no agent sees it (AGT-2, AGT-3).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "core::ops::Not::not")
+    )]
+    pub host_only: bool,
 }
 
 impl EventDef {
@@ -131,7 +143,7 @@ impl EventDef {
     }
 }
 
-/// One string param (JSON Schema subset, FMT-4).
+/// One param (JSON Schema subset, FMT-4, FMT-10).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -149,6 +161,43 @@ pub struct ParamSpec {
     pub enum_values: Vec<String>,
     /// `pattern`.
     pub pattern: Option<String>,
+    /// `type`: a string, or a JSON value. Left out of the JSON when `string`,
+    /// so a machine without a JSON param compiles as before.
+    #[cfg_attr(
+        feature = "serde",
+        serde(rename = "type", default, skip_serializing_if = "ParamKind::is_string")
+    )]
+    pub kind: ParamKind,
+    /// A JSON param's JSON Schema, bundled when the machine loaded, as
+    /// compact JSON text: every file that it refers to is a resource under
+    /// its `$defs` (FMT-10).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub schema: Option<String>,
+}
+
+/// A param's `type` (FMT-10).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(rename_all = "camelCase")
+)]
+pub enum ParamKind {
+    /// A string, the default.
+    #[default]
+    String,
+    /// Any JSON value, which the engine hands over as compact JSON text.
+    Json,
+}
+
+impl ParamKind {
+    /// Whether this is [`ParamKind::String`].
+    pub fn is_string(&self) -> bool {
+        *self == ParamKind::String
+    }
 }
 
 /// Before or after a state's own `entry`/`exit`.

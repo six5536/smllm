@@ -11,17 +11,18 @@ use smllm_core::host::{
     Outcome, Store,
 };
 use smllm_core::model::Config;
-use smllm_core::record::{HistoryEntry, Instance, Session, Status};
-use smllm_core::{Bind, Stop};
+use smllm_core::record::{AuditEntry, HistoryEntry, Instance, Session, Status};
+use smllm_core::{Bind, ParamValue, Stop};
 
 use smllm_json::{Fields, FromJson, JsonValue, ToJson};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 extern "C" {
-    /// The JS host object. Every method must exist. Each is called with
-    /// `catch`: a method that throws is a host failure the engine handles
-    /// (a failed guard or action, a bad pattern), never an unwind through it.
+    /// The JS host object. Every method must exist but `wantsAudit` and
+    /// `audit`. Each is called with `catch`: a method that throws, or is
+    /// missing, is a host failure the engine handles (a failed guard or
+    /// action, a bad pattern, no audit), never an unwind through it.
     pub type JsHost;
 
     /// Guard of a host kind: `true` passes.
@@ -66,6 +67,12 @@ extern "C" {
     /// (WASM-2).
     #[wasm_bindgen(method, catch)]
     fn put(this: &JsHost, kind: &str, key: &str, record: &str) -> Result<(), JsValue>;
+    /// Whether the host keeps an audit (ENG-11); missing means no.
+    #[wasm_bindgen(method, catch, js_name = wantsAudit)]
+    fn wants_audit(this: &JsHost) -> Result<bool, JsValue>;
+    /// One audit entry as JSON, and the text of the call's reply.
+    #[wasm_bindgen(method, catch)]
+    fn audit(this: &JsHost, entry: &str, reply: &str) -> Result<(), JsValue>;
 
     /// The global `String(value)`: an exception's text (`Error: …`).
     #[wasm_bindgen(js_name = String)]
@@ -257,6 +264,15 @@ impl Store for WasmStore<'_> {
         let _ = self.host.history(machine, id, &json(entry));
         Ok(())
     }
+    // sokf-implements: WASM-10_AC-1
+    fn wants_audit(&self) -> bool {
+        self.host.wants_audit().unwrap_or(false)
+    }
+    /// A host that throws loses that entry, never the call, as history.
+    fn append_audit(&mut self, entry: &AuditEntry, reply: &str) -> Result<(), HostError> {
+        let _ = self.host.audit(&json(entry), reply);
+        Ok(())
+    }
 }
 
 /// An smllm engine with an in-memory store.
@@ -267,26 +283,112 @@ pub struct Engine {
     host: JsHost,
 }
 
-/// `fire`'s params: a JSON object of strings; a non-string is named by key.
-fn parse_params(json: &str) -> Result<Vec<(String, String)>, JsError> {
+/// A param's value as the engine takes it: a string as a JSON string, any
+/// other JSON value as its JSON text (MCP-1).
+fn param_value(v: JsonValue) -> ParamValue {
+    match v {
+        JsonValue::String(s) => ParamValue::Str(s),
+        other => ParamValue::Json(smllm_json::to_string(&other)),
+    }
+}
+
+/// An object's fields as params. A repeated param's last value wins, as
+/// when read into a map.
+fn params_of(fields: Vec<(String, JsonValue)>) -> Vec<(String, ParamValue)> {
+    let mut params: smllm_core::SmallMap<ParamValue> = smllm_core::SmallMap::new();
+    for (k, v) in fields {
+        params.insert(k, param_value(v));
+    }
+    let mut out = Vec::new();
+    for (k, v) in params.iter() {
+        out.push((k.to_string(), v.clone()));
+    }
+    out
+}
+
+/// `fire`'s params: a JSON object, whose strings are JSON strings and whose
+/// other values only a JSON param takes.
+fn parse_params(json: &str) -> Result<Vec<(String, ParamValue)>, JsError> {
     let fields = from_json::<Fields>(json, "params must be a JSON object")?;
-    fields
-        .into_vec()
-        .into_iter()
-        .map(|(k, v)| match v {
-            JsonValue::String(s) => Ok((k, s)),
-            _ => Err(JsError::new(&format!("param {k} must be a string"))),
-        })
-        // A repeated param's last value wins, as when read into a map.
-        .collect::<Result<smllm_core::SmallMap<String>, _>>()
-        .map(|m| m.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+    Ok(params_of(fields.into_vec()))
+}
+
+/// JSON text written as it is.
+struct Raw<'a>(&'a str);
+
+impl ToJson for Raw<'_> {
+    fn write_json(&self, out: &mut String) {
+        out.push_str(self.0);
+    }
+}
+
+/// An answer's params as one object of JSON values: a string as a JSON
+/// string, any other value as its JSON text.
+struct Params<'a>(&'a [(String, ParamValue)]);
+
+impl ToJson for Params<'_> {
+    fn write_json(&self, out: &mut String) {
+        let mut o = smllm_json::object(out);
+        for (k, v) in self.0 {
+            match v {
+                ParamValue::Str(s) | ParamValue::Text(s) => o.field(k, s),
+                ParamValue::Json(j) => o.field(k, &Raw(j)),
+            };
+        }
+        o.end();
+    }
+}
+
+/// Offered events: `name`, `description`, and `params`, each with `name`,
+/// `required`, `type`, `enum`, `pattern`, `description`, and `schema`, a
+/// JSON param's bundled JSON Schema as an object.
+struct Offers<'a>(&'a [smllm_core::Offer]);
+
+impl ToJson for Offers<'_> {
+    fn write_json(&self, out: &mut String) {
+        out.push('[');
+        for (i, offer) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let mut o = smllm_json::object(out);
+            o.field("name", &offer.name)
+                .field("description", &offer.description)
+                .field("params", &ParamViews(&offer.params));
+            o.end();
+        }
+        out.push(']');
+    }
+}
+
+struct ParamViews<'a>(&'a [smllm_core::ParamView]);
+
+impl ToJson for ParamViews<'_> {
+    fn write_json(&self, out: &mut String) {
+        out.push('[');
+        for (i, p) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let mut o = smllm_json::object(out);
+            o.field("name", &p.name)
+                .field("required", &p.required)
+                .field("type", &p.kind)
+                .field("enum", &p.enum_values)
+                .field("pattern", &p.pattern)
+                .field("description", &p.description)
+                .field("schema", &p.schema.as_deref().map(Raw));
+            o.end();
+        }
+        out.push(']');
+    }
 }
 
 /// A tool call's session, event and params.
-type ToolArgs = (Option<String>, Option<String>, Vec<(String, String)>);
+type ToolArgs = (Option<String>, Option<String>, Vec<(String, ParamValue)>);
 
 /// A tool call's `session`, `event` and `params`, with the MCP server's
-/// rules: an empty or null string is absent; params are strings.
+/// rules: an empty or null string is absent; params is an object.
 fn tool_args(args: &str) -> Result<ToolArgs, String> {
     let mut f = smllm_json::parse(args)
         .and_then(Fields::from_json)
@@ -298,25 +400,11 @@ fn tool_args(args: &str) -> Result<ToolArgs, String> {
         _ => Err(format!("{k} must be a string")),
     };
     let (session, event) = (text("session")?, text("event")?);
-    let mut params: smllm_core::SmallMap<String> = smllm_core::SmallMap::new();
-    match f.take("params") {
-        Ok(None | Some(JsonValue::Null)) => {}
-        Ok(Some(JsonValue::Object(fields))) => {
-            for (k, v) in fields {
-                match v {
-                    JsonValue::String(s) => {
-                        params.insert(k, s);
-                    }
-                    _ => return Err(format!("param {k} must be a string")),
-                }
-            }
-        }
-        _ => return Err("params must be an object of strings".to_string()),
-    }
-    let params = params
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.clone()))
-        .collect();
+    let params = match f.take("params") {
+        Ok(None | Some(JsonValue::Null)) => Vec::new(),
+        Ok(Some(JsonValue::Object(fields))) => params_of(fields),
+        _ => return Err("params must be an object".to_string()),
+    };
     Ok((session, event, params))
 }
 
@@ -410,14 +498,37 @@ impl Engine {
             .map_err(err)
     }
 
-    /// Fire an event; `params` is a JSON object of strings.
+    /// Fire an event for the agent; `params` is a JSON object, of strings
+    /// except for a JSON param's value.
     pub fn fire(
         &mut self,
         key: Option<String>,
         event: &str,
         params: &str,
     ) -> Result<String, JsError> {
-        let ps: Vec<(String, String)> = if params.is_empty() {
+        self.fire_from(key, event, params, false)
+    }
+
+    /// Fire an event as the host, host-only events included (ENG-6).
+    // sokf-implements: WASM-8_AC-1
+    #[wasm_bindgen(js_name = fireAsHost)]
+    pub fn fire_as_host(
+        &mut self,
+        key: Option<String>,
+        event: &str,
+        params: &str,
+    ) -> Result<String, JsError> {
+        self.fire_from(key, event, params, true)
+    }
+
+    fn fire_from(
+        &mut self,
+        key: Option<String>,
+        event: &str,
+        params: &str,
+        as_host: bool,
+    ) -> Result<String, JsError> {
+        let ps: Vec<(String, ParamValue)> = if params.is_empty() {
             Vec::new()
         } else {
             parse_params(params)?
@@ -426,9 +537,15 @@ impl Engine {
             harness: "wasm",
             ..Bind::default()
         };
-        self.with(|e, h| e.fire(h, key.as_deref(), event, &ps, &b))
-            .map(|r| json(&r))
-            .map_err(err)
+        self.with(|e, h| {
+            if as_host {
+                e.fire_as_host(h, key.as_deref(), event, &ps, &b)
+            } else {
+                e.fire(h, key.as_deref(), event, &ps, &b)
+            }
+        })
+        .map(|r| json(&r))
+        .map_err(err)
     }
 
     /// The stop decision as JSON (AGT-8..6): `{"decision": "allow"}` = may
@@ -465,13 +582,6 @@ impl Engine {
     /// the core's definition, as the MCP server offers it (WASM-1).
     // sokf-implements: WASM-1_AC-1
     pub fn tool(&self) -> String {
-        /// JSON written as is.
-        struct Raw(&'static str);
-        impl ToJson for Raw {
-            fn write_json(&self, out: &mut String) {
-                out.push_str(self.0);
-            }
-        }
         let mut out = String::new();
         let mut o = smllm_json::object(&mut out);
         o.field("name", &smllm_core::TOOL_NAME)
@@ -506,6 +616,58 @@ impl Engine {
             text: format!("error: {msg}"),
         });
         json(&reply)
+    }
+
+    /// The state's text for a model without tools; `schemas` shows each
+    /// JSON param's schema (ENG-7).
+    // sokf-implements: WASM-9_AC-1
+    #[wasm_bindgen(js_name = stateText)]
+    pub fn state_text(&mut self, key: &str, schemas: bool) -> Result<String, JsError> {
+        self.with(|e, h| e.state_text(h, key, schemas)).map_err(err)
+    }
+
+    /// The JSON Schema of a valid answer, as JSON (ENG-8).
+    #[wasm_bindgen(js_name = answerSchema)]
+    pub fn answer_schema(&mut self, key: &str) -> Result<String, JsError> {
+        self.with(|e, h| e.answer_schema(h, key)).map_err(err)
+    }
+
+    /// A model's answer checked (ENG-9), as JSON: `{"ok": true, "event",
+    /// "params"}`, whose params are JSON values ready for `fire`, or
+    /// `{"ok": false, "error"}`.
+    #[wasm_bindgen(js_name = checkAnswer)]
+    pub fn check_answer(&mut self, key: &str, text: &str) -> Result<String, JsError> {
+        let checked = self
+            .with(|e, h| e.check_answer(h, key, text))
+            .map_err(err)?;
+        let mut out = String::new();
+        let mut o = smllm_json::object(&mut out);
+        match &checked {
+            Ok(a) => {
+                o.field("ok", &true)
+                    .field("event", &a.event)
+                    .field("params", &Params(&a.params));
+            }
+            Err(e) => {
+                o.field("ok", &false).field("error", e);
+            }
+        }
+        o.end();
+        Ok(out)
+    }
+
+    /// The state's offered events in two lists, the model's and the
+    /// host's, with where the session is, as JSON (ENG-10).
+    #[wasm_bindgen(js_name = hostView)]
+    pub fn host_view(&mut self, key: &str) -> Result<String, JsError> {
+        let v = self.with(|e, h| e.host_view(h, key)).map_err(err)?;
+        let mut out = String::new();
+        let mut o = smllm_json::object(&mut out);
+        o.field("location", &v.location)
+            .field("model", &Offers(&v.model))
+            .field("host", &Offers(&v.host));
+        o.end();
+        Ok(out)
     }
 
     /// Sessions, bindings and instances as JSON (history went to the host).

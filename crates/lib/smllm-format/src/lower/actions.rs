@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use smllm_core::SmallMap;
+use smllm_core::host::InstructionSource;
 use smllm_core::model::{ActionDef, GuardDef, Prompt, Value};
 
 use crate::load::Mode;
@@ -13,15 +14,19 @@ use crate::source::{ActionSrc, Actions, CommandParams, GuardSrc, Run, StringOr};
 /// Fences the agent text must not contain (AGT-1).
 const FENCES: [&str; 3] = ["</smllm>", "</instructions>", "</events>"];
 
-/// Where prompt files live, and what the load does with them.
+/// Where a machine's other files live, the source that reads them, and
+/// what the load does with them.
 pub(crate) struct Files<'a> {
     pub dir: &'a Path,
     pub mode: Mode,
+    /// Reads every file of the machine (FMT-11).
+    source: &'a dyn InstructionSource,
     /// Files [`Mode::Run`] has found already: a file named by many states is
     /// checked once.
     found: RefCell<Vec<PathBuf>>,
-    /// Every prompt file the load read or checked, found or not: the result
-    /// depends on them (a cached load is stale when one changes, MCP-1).
+    /// Every file the load read or checked besides the machine file, found
+    /// or not: the result depends on them (a cached load is stale when one
+    /// changes, MCP-1).
     probed: RefCell<Vec<PathBuf>>,
     /// In [`Mode::Inline`], the machine file's folder relative to the
     /// compiled file, `/`-separated (`""` when they are one folder): a
@@ -30,10 +35,11 @@ pub(crate) struct Files<'a> {
 }
 
 impl<'a> Files<'a> {
-    pub(crate) fn new(dir: &'a Path, mode: Mode) -> Self {
+    pub(crate) fn new(source: &'a dyn InstructionSource, dir: &'a Path, mode: Mode) -> Self {
         Self {
             dir,
             mode,
+            source,
             found: RefCell::default(),
             probed: RefCell::default(),
             prefix: String::new(),
@@ -67,7 +73,7 @@ impl<'a> Files<'a> {
         }
     }
 
-    /// The prompt files this load read or checked.
+    /// The files this load read or checked besides the machine file.
     pub(crate) fn probed(self) -> Vec<PathBuf> {
         self.probed.into_inner()
     }
@@ -80,21 +86,25 @@ impl<'a> Files<'a> {
     }
 
     pub(crate) fn resolve(&self, rel: &str) -> String {
-        self.dir.join(rel).display().to_string()
+        crate::system_path_text(&self.dir.join(rel))
+    }
+
+    /// The text of the file at `full` through the machine's source, `None`
+    /// when it doesn't exist.
+    pub(crate) fn read(&self, full: &Path) -> Result<Option<String>, String> {
+        self.probe(full);
+        self.source.read(&crate::system_path_text(full))
     }
 
     /// The prompt file's text: `None` in [`Mode::Run`], which only checks
     /// that the file is there.
-    fn prompt(&self, full: &Path) -> std::io::Result<Option<String>> {
-        self.probe(full);
-        if self.mode != Mode::Run {
-            return std::fs::read_to_string(full).map(Some);
-        }
-        if self.found.borrow().iter().any(|p| p == full) {
+    fn prompt(&self, full: &Path) -> Result<Option<String>, String> {
+        if self.mode == Mode::Run && self.found.borrow().iter().any(|p| p == full) {
             return Ok(None);
         }
-        if !std::fs::metadata(full)?.is_file() {
-            return Err(std::io::Error::other("not a file"));
+        let text = self.read(full)?.ok_or_else(|| "no such file".to_string())?;
+        if self.mode != Mode::Run {
+            return Ok(Some(text));
         }
         self.found.borrow_mut().push(full.to_path_buf());
         Ok(None)
@@ -188,7 +198,7 @@ pub(crate) fn lower_prompt(
                     }
                     Some(ActionDef::Prompt(match text {
                         Some(t) if files.mode == Mode::Inline => Prompt::Text(t),
-                        _ => Prompt::File(full.display().to_string()),
+                        _ => Prompt::File(crate::system_path_text(&full)),
                     }))
                 }
                 Err(e) => {
@@ -227,20 +237,18 @@ pub(crate) fn default_prompt(
         // Read when the prompt is shown; no probe for the fence warning.
         Mode::Run => {}
         Mode::Check => {
-            files.probe(&full);
-            if let Ok(t) = std::fs::read_to_string(&full) {
+            if let Ok(Some(t)) = files.read(&full) {
                 check_fences(c, path, &t);
             }
         }
         Mode::Inline => {
-            files.probe(&full);
-            let t = std::fs::read_to_string(&full).ok()?;
+            let t = files.read(&full).ok().flatten()?;
             check_fences(c, path, &t);
             return Some(ActionDef::Prompt(Prompt::Text(t)));
         }
     }
     Some(ActionDef::Prompt(Prompt::DefaultFile(
-        full.display().to_string(),
+        crate::system_path_text(&full),
     )))
 }
 

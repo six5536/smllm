@@ -141,8 +141,24 @@ pub struct FireArgs {
 pub enum SessionCommand {
     /// List sessions, the most recently active first.
     List(JsonArgs),
-    /// Show where a session is, as the smllm tool does with no event.
-    Show(KeyArgs),
+    /// Show where a session is, as the smllm tool does with no event, or
+    /// with --audit every call that drove it.
+    Show(SessionShowArgs),
+}
+
+/// `session show KEY [--audit] [--json]`.
+#[derive(Debug, Args)]
+pub struct SessionShowArgs {
+    /// The session key.
+    #[arg(value_name = "KEY")]
+    pub key: String,
+    /// Print the session's audit: one line for each call, or with --json the
+    /// audit file's JSON lines.
+    #[arg(long)]
+    pub audit: bool,
+    /// Print JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// `instance …`.
@@ -224,11 +240,20 @@ pub struct GraphArgs {
     #[arg(value_name = "ID")]
     pub id: Option<String>,
     /// Print JSON.
-    #[arg(long, conflicts_with = "mermaid")]
+    #[arg(long, conflicts_with_all = ["mermaid", "open", "html", "png"])]
     pub json: bool,
     /// Print a Mermaid stateDiagram-v2.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["open", "html", "png"])]
     pub mermaid: bool,
+    /// Open the interactive diagram in the default web browser (BROWSER sets the program).
+    #[arg(long)]
+    pub open: bool,
+    /// Write the interactive diagram to FILE, an HTML page that needs only a browser.
+    #[arg(long, value_name = "FILE")]
+    pub html: Option<PathBuf>,
+    /// Write the diagram as a PNG picture to FILE, or for several machines to STEM-ID.EXT beside it.
+    #[arg(long, value_name = "FILE")]
+    pub png: Option<PathBuf>,
 }
 
 /// `info …`.
@@ -326,6 +351,20 @@ mod tests {
     #[test]
     fn graph_json_and_mermaid_conflict() {
         assert!(Cli::try_parse_from(["smllm", "graph", "--json", "--mermaid"]).is_err());
+        for picture in [&["--open"][..], &["--html", "a.html"], &["--png", "a.png"]] {
+            for text in ["--json", "--mermaid"] {
+                let args = [&["smllm", "graph", text][..], picture].concat();
+                assert!(Cli::try_parse_from(args).is_err());
+            }
+        }
+        let Some(Command::Graph(g)) = parse(&[
+            "smllm", "graph", "dev", "--open", "--html", "a.html", "--png", "a.png",
+        ])
+        .command
+        else {
+            panic!()
+        };
+        assert!(g.open && g.html.is_some() && g.png.is_some());
         assert!(Cli::try_parse_from(["smllm", "frobnicate"]).is_err());
     }
 }

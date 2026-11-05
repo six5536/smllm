@@ -5,7 +5,7 @@ use std::path::Path;
 
 use smllm_core::host::{Host, Store};
 use smllm_core::record::{Instance, Session};
-use smllm_core::{Bind, Engine, Reply};
+use smllm_core::{Bind, Engine, ParamValue, Reply};
 use smllm_format::{ConfigFile, Findings, Loaded, MachineSource, Mode, load_configs};
 
 use crate::error::Result;
@@ -57,11 +57,15 @@ impl Runtime {
             .collect();
         let store = FsStore::new(paths::user_state_dir()?, machines);
         Ok(Self {
-            engine: Engine::new(config),
+            // The CLI runs only harnesses, so no host fires events (ENG-6).
+            engine: Engine::for_harness(config),
             sources,
             findings,
             store,
-            configs: files.iter().map(|f| f.path.display().to_string()).collect(),
+            configs: files
+                .iter()
+                .map(|f| smllm_format::system_path_text(&f.path))
+                .collect(),
             inputs,
         })
     }
@@ -116,10 +120,10 @@ impl Runtime {
         harness: &str,
         key: Option<&str>,
         event: &str,
-        params: &[(String, String)],
+        params: &[(String, ParamValue)],
         cwd: &Path,
     ) -> Result<Reply> {
-        let cwd = cwd.display().to_string();
+        let cwd = smllm_format::system_path_text(cwd);
         let configs = self.configs.clone();
         let bind = Bind {
             harness,
@@ -137,10 +141,10 @@ impl Runtime {
         harness: &str,
         key: Option<&str>,
         event: Option<&str>,
-        params: &[(String, String)],
+        params: &[(String, ParamValue)],
         cwd: &Path,
     ) -> Result<Reply> {
-        let cwd = cwd.display().to_string();
+        let cwd = smllm_format::system_path_text(cwd);
         let configs = self.configs.clone();
         let bind = Bind {
             harness,

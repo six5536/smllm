@@ -3,22 +3,24 @@
 use std::path::Path;
 
 use serde_json::json;
-use smllm_core::format_utc;
 use smllm_core::host::Store;
+use smllm_core::{ParamValue, format_utc};
 
-use crate::cli::{FireArgs, JsonArgs, KeyArgs};
+use crate::cli::{FireArgs, JsonArgs, KeyArgs, SessionShowArgs};
 use crate::error::{Error, Result};
 use crate::output::{self, EXIT_ERRORS, EXIT_OK};
 use crate::paths;
 use crate::runtime::Runtime;
 use crate::store::FsStore;
 
-/// `KEY=VALUE` params.
-fn params(raw: &[String]) -> Result<Vec<(String, String)>> {
+/// `KEY=VALUE` params, each value as text with no JSON type: the engine
+/// reads a JSON param's text as JSON, the one path that does (CLI-5).
+// sokf-implements: CLI-5_AC-2
+fn params(raw: &[String]) -> Result<Vec<(String, ParamValue)>> {
     raw.iter()
         .map(|p| {
             p.split_once('=')
-                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .map(|(k, v)| (k.to_string(), ParamValue::Text(v.to_string())))
                 .ok_or_else(|| Error::msg(format!("--param {p}: expected KEY=VALUE")))
         })
         .collect()
@@ -66,8 +68,12 @@ pub fn session_list(args: &JsonArgs) -> Result<u8> {
     Ok(EXIT_OK)
 }
 
-/// `smllm session show KEY`: the tool's no-event view.
-pub fn session_show(args: &KeyArgs) -> Result<u8> {
+/// `smllm session show KEY`: the tool's no-event view, which records no
+/// audit entry; with `--audit`, the session's audit.
+pub fn session_show(args: &SessionShowArgs) -> Result<u8> {
+    if args.audit {
+        return crate::commands::audit::show(&args.key, args.json);
+    }
     let mut rt = Runtime::for_session(&args.key)?;
     let reply = rt.with(|e, h| e.view(h, &args.key))?;
     output::reply(&reply, args.json)?;
@@ -176,7 +182,7 @@ mod tests {
     fn params_need_an_equals_sign() {
         assert_eq!(
             params(&["a=b=c".into()]).unwrap(),
-            vec![("a".into(), "b=c".into())]
+            vec![("a".into(), ParamValue::Text("b=c".into()))]
         );
         assert!(params(&["nope".into()]).is_err());
     }

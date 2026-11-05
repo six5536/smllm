@@ -1,0 +1,65 @@
+# A host-driven machine (examples/extractor/README.md): a model without tools
+# writes an extractor for a bank statement, the host checks it, and the
+# model tries again with the errors, up to five attempts.
+id: extractor-build
+description: Write an extractor for a bank statement that the host checks.
+initial: READ
+meta:
+  smllm: 1
+  instance:
+    kind: statement
+  events:
+    extractor:
+      description: Answer with an extractor for the statement.
+      params:
+        type: object
+        properties:
+          json:
+            type: json
+            schema: schemas/extractor.json
+            description: The extractor.
+        required: [json]
+    pages:
+      description: Ask for more pages of the statement.
+      params:
+        type: object
+        properties:
+          pages:
+            type: string
+            pattern: "^[0-9]+(,[0-9]+)*$"
+            description: The pages to read, such as 3,4.
+        required: [pages]
+    checks_passed:
+      source: host
+      description: The extractor's items reconcile.
+    checks_failed:
+      source: host
+      description: The extractor's items don't reconcile.
+      params:
+        type: object
+        properties:
+          errors: { type: string, description: What failed. }
+        required: [errors]
+    timed_out:
+      source: host
+      description: The model took too long to answer.
+states:
+  READ:
+    meta: { entryPoint: true }
+    entry: { type: prompt, params: { file: prompts/read.md } }
+    on:
+      extractor: CHECKING
+      pages: READ
+      timed_out: FAILED
+  CHECKING:
+    entry: { type: prompt, params: { text: The host checks the extractor. } }
+    on:
+      checks_passed: ACCEPTED
+      checks_failed:
+        - guard: { type: visits, params: { state: READ, atLeast: 5 } }
+          target: FAILED
+        - target: READ
+  ACCEPTED:
+    type: final
+  FAILED:
+    type: final

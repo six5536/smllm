@@ -1,36 +1,18 @@
-//! `smllm graph`: states and transitions, guards shown (CLI-8).
+//! `smllm graph`: states and transitions, guards shown, as text, JSON,
+//! Mermaid, an interactive page, or a PNG picture (CLI-8).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use agent_harness_adapter_core::fs::write_atomic;
 use serde_json::{Value, json};
-use smllm_core::model::{ActionDef, GuardDef, Machine, Transition};
+use smllm_core::model::{ActionDef, Machine};
 
 use crate::cli::GraphArgs;
 use crate::error::{Error, Result};
 use crate::output::{self, EXIT_OK};
 use crate::paths;
+use crate::picture::{self, guard_label, state_edges as edges};
 use crate::runtime::Runtime;
-
-fn guard_label(g: &GuardDef) -> String {
-    match g {
-        GuardDef::Visits { state, at_least } => format!("visits {state} ≥ {at_least}"),
-        GuardDef::Host { kind, params } => match params.get("run") {
-            Some(smllm_core::model::Value::Str(s)) => format!("{kind} `{s}`"),
-            Some(smllm_core::model::Value::List(l)) => format!("{kind} [{}]", l.join(" ")),
-            _ => kind.clone(),
-        },
-    }
-}
-
-/// Every (event, transition) of a state, `always` as event `always`.
-fn edges(s: &smllm_core::model::State) -> Vec<(&str, &Transition)> {
-    let mut out: Vec<(&str, &Transition)> = Vec::new();
-    for o in &s.on {
-        out.extend(o.transitions.iter().map(|t| (o.event.as_str(), t)));
-    }
-    out.extend(s.always.iter().map(|t| ("always", t)));
-    out
-}
 
 fn text(m: &Machine) -> String {
     let mut out = format!("{} (initial {})\n", m.id, m.initial);
@@ -120,7 +102,7 @@ fn to_json(m: &Machine) -> Value {
     json!({ "id": m.id, "initial": m.initial, "states": states })
 }
 
-/// `smllm graph [ID] [--json|--mermaid]`.
+/// `smllm graph [ID] [--json|--mermaid|--open|--html FILE|--png FILE]`.
 // sokf-implements: CLI-8_AC-1
 pub fn graph(args: &GraphArgs, explicit: Option<&Path>) -> Result<u8> {
     let cwd = paths::cwd()?;
@@ -134,6 +116,9 @@ pub fn graph(args: &GraphArgs, explicit: Option<&Path>) -> Result<u8> {
         ],
         None => rt.engine.config().machines.iter().collect(),
     };
+    if args.open || args.html.is_some() || args.png.is_some() {
+        return pictures(args, &machines);
+    }
     if args.json {
         output::json(
             &json!({ "machines": machines.iter().map(|m| to_json(m)).collect::<Vec<_>>() }),
@@ -156,4 +141,110 @@ pub fn graph(args: &GraphArgs, explicit: Option<&Path>) -> Result<u8> {
         )?;
     }
     Ok(EXIT_OK)
+}
+
+/// A new folder in the temporary folder, for the page that `--open` opens.
+fn temp_folder() -> Result<PathBuf> {
+    let base = std::env::temp_dir();
+    for attempt in 0..100u64 {
+        let n = getrandom::u64()
+            .unwrap_or_else(|_| u64::from(std::process::id()) << 32)
+            .wrapping_add(attempt);
+        let dir = base.join(format!("smllm-graph-{n:016x}"));
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(Error::io(&dir, e)),
+        }
+    }
+    Err(Error::msg(format!(
+        "cannot make a new folder in {}",
+        smllm_format::path_text(&base)
+    )))
+}
+
+/// The file of each machine's PNG: `file` for one machine, and for several,
+/// `STEM-ID.EXT` beside `file` for each machine `ID`.
+// sokf-implements: CLI-8_AC-9
+fn png_paths(file: &Path, ids: &[&str]) -> Vec<PathBuf> {
+    if let [_] = ids {
+        return vec![file.to_path_buf()];
+    }
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+    let ext = file
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    ids.iter()
+        .map(|id| file.with_file_name(format!("{stem}-{id}{ext}")))
+        .collect()
+}
+
+// sokf-implements: CLI-8_AC-3
+// sokf-implements: CLI-8_AC-4
+// sokf-implements: CLI-8_AC-7
+// sokf-implements: CLI-8_AC-8
+/// `--open`, `--html FILE`, and `--png FILE`: build every output first, open
+/// the browser on a page of its own, and then write the files.
+fn pictures(args: &GraphArgs, machines: &[&Machine]) -> Result<u8> {
+    if machines.is_empty() {
+        return Err(Error::msg("no state machine to draw"));
+    }
+    let ids: Vec<&str> = machines.iter().map(|m| m.id.as_str()).collect();
+    let title = match ids.as_slice() {
+        [one] => format!("State machine {one}"),
+        many => format!("State machines {}", many.join(", ")),
+    };
+    let page = (args.open || args.html.is_some()).then(|| picture::page(machines, &title));
+    let mut pngs = Vec::new();
+    if let Some(file) = &args.png {
+        for (path, m) in png_paths(file, &ids).into_iter().zip(machines) {
+            pngs.push((path, picture::png(m)?));
+        }
+    }
+    let mut done = String::new();
+    if let Some(page) = page.as_deref().filter(|_| args.open) {
+        let dir = temp_folder()?;
+        let file = dir.join(format!("{}.html", args.id.as_deref().unwrap_or("machines")));
+        let opened = write_atomic(&file, page)
+            .map_err(Error::from)
+            .and_then(|()| picture::open(&file));
+        if let Err(e) = opened {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(e);
+        }
+        done.push_str(&format!("opened {} in the browser\n", output::shown(&file)));
+    }
+    if let (Some(file), Some(page)) = (&args.html, &page) {
+        write_atomic(file, page)?;
+        done.push_str(&format!("wrote {}\n", output::shown(file)));
+    }
+    for (file, png) in &pngs {
+        write_atomic(file, png)?;
+        done.push_str(&format!("wrote {}\n", output::shown(file)));
+    }
+    output::text(&done)?;
+    Ok(EXIT_OK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_png_for_each_machine() {
+        let f = Path::new("out/m.png");
+        assert_eq!(png_paths(f, &["dev"]), [PathBuf::from("out/m.png")]);
+        assert_eq!(
+            png_paths(f, &["dev", "plan"]),
+            [
+                PathBuf::from("out/m-dev.png"),
+                PathBuf::from("out/m-plan.png")
+            ]
+        );
+        assert_eq!(
+            png_paths(Path::new("m"), &["a", "b"])[1],
+            PathBuf::from("m-b")
+        );
+    }
 }

@@ -1,8 +1,10 @@
 //! Offered events and their params: what the menu shows and what a call is
 //! checked against (AGT-2, AGT-2, IDLE).
 
+use smllm_json::ToJson as _;
+
 use crate::host::Matcher;
-use crate::model::{Config, EventDef, Machine, ParamSpec, State};
+use crate::model::{Config, EventDef, Machine, ParamKind, ParamSpec, State};
 use crate::prelude::*;
 use crate::record::Instance;
 use crate::utils::{join, join_with};
@@ -42,6 +44,10 @@ pub struct ParamView {
     pub pattern: Option<String>,
     /// Prompt.
     pub description: Option<String>,
+    /// A string, or a JSON value (FMT-10).
+    pub kind: ParamKind,
+    /// A JSON param's bundled JSON Schema, as compact JSON text.
+    pub schema: Option<String>,
 }
 
 impl ParamView {
@@ -52,8 +58,57 @@ impl ParamView {
             enum_values: spec.enum_values.clone(),
             pattern: spec.pattern.clone(),
             description: prompt.cloned().or_else(|| spec.description.clone()),
+            kind: spec.kind,
+            schema: spec.schema.clone(),
         }
     }
+}
+
+/// A param's value as a host received it (AGT-3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParamValue {
+    /// A JSON string, such as a tool call sends. A JSON param takes it as
+    /// that string, and never reads the JSON that it might hold.
+    Str(String),
+    /// Any other JSON value, as its JSON text. Only a JSON param takes one.
+    Json(String),
+    /// Text with no JSON type, such as the `VALUE` of `smllm fire`'s
+    /// `KEY=VALUE`. A string param takes it as it is, and a JSON param reads
+    /// it as JSON text.
+    Text(String),
+}
+
+impl From<&str> for ParamValue {
+    fn from(s: &str) -> Self {
+        ParamValue::Str(s.to_string())
+    }
+}
+
+impl From<String> for ParamValue {
+    fn from(s: String) -> Self {
+        ParamValue::Str(s)
+    }
+}
+
+/// The params of an event whose params are all strings, such as idle's
+/// `enter`: a JSON value that isn't a string is an error that names it.
+// sokf-implements: AGT-3_AC-8
+pub(crate) fn text_params(
+    event: &str,
+    given: &[(String, ParamValue)],
+) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    for (name, value) in given {
+        match value {
+            ParamValue::Str(s) | ParamValue::Text(s) => out.push((name.clone(), s.clone())),
+            ParamValue::Json(_) => return Err(not_a_string(event, name)),
+        }
+    }
+    Ok(out)
+}
+
+fn not_a_string(event: &str, name: &str) -> String {
+    format!("{event} param {name} must be a string")
 }
 
 /// Guidance for a built-in: the machine's override, else `default` (AGT-2).
@@ -151,6 +206,26 @@ pub(crate) fn machine_offers(
     offers
 }
 
+/// Whether an agent sees and fires `event` of `machine`: every event but one
+/// that `meta.events` marks with `source: host`. Every path that shows an
+/// agent its events, or takes an event from it, asks this (AGT-2, AGT-3).
+pub(crate) fn for_agent(machine: &Machine, event: &str) -> bool {
+    !machine.host_only(event)
+}
+
+/// [`machine_offers`] as an agent sees them: without the host-only events
+/// (AGT-2).
+// sokf-implements: AGT-2_AC-4
+pub(crate) fn agent_offers(
+    machine: &Machine,
+    state: Option<&State>,
+    inst: &Instance,
+) -> Vec<Offer> {
+    let mut offers = machine_offers(machine, state, inst);
+    offers.retain(|o| for_agent(machine, &o.name));
+    offers
+}
+
 /// Events offered in idle: `enter`, `resume` when an instance is
 /// interrupted, and `listPaused` when the idle list left some of `paused`
 /// out (AGT-9).
@@ -236,7 +311,7 @@ pub(crate) fn idle_offers(
 // sokf-implements: AGT-3_AC-3
 pub(crate) fn check_params(
     offer: &Offer,
-    given: &[(String, String)],
+    given: &[(String, ParamValue)],
     matcher: &dyn Matcher,
 ) -> Result<Vec<(String, String)>, String> {
     for (name, _) in given {
@@ -257,10 +332,42 @@ pub(crate) fn check_params(
             }
             continue;
         };
-        check_value(&offer.name, p, value, matcher)?;
-        out.push((p.name.clone(), value.clone()));
+        let value = match (p.kind, value) {
+            (ParamKind::String, ParamValue::Str(s) | ParamValue::Text(s)) => {
+                check_value(&offer.name, p, s, matcher)?;
+                s.clone()
+            }
+            // sokf-implements: AGT-3_AC-8
+            (ParamKind::String, ParamValue::Json(_)) => {
+                return Err(not_a_string(&offer.name, &p.name));
+            }
+            // A JSON string stays a string: the host can then tell it from
+            // the object that its text might spell.
+            // sokf-implements: AGT-3_AC-9
+            (ParamKind::Json, ParamValue::Str(s)) => smllm_json::to_string(s.as_str()),
+            (ParamKind::Json, ParamValue::Json(s) | ParamValue::Text(s)) => {
+                compact_json(&offer.name, &p.name, s)?
+            }
+        };
+        out.push((p.name.clone(), value));
     }
     Ok(out)
+}
+
+/// A JSON param's value as compact JSON text, or the error that names the
+/// param (FMT-10). The engine never checks the value against the schema:
+/// the host does.
+// sokf-implements: AGT-3_AC-6
+// sokf-implements: AGT-3_AC-7
+fn compact_json(event: &str, name: &str, text: &str) -> Result<String, String> {
+    match smllm_json::parse(text) {
+        Ok(v) => {
+            let mut out = String::new();
+            v.write_json(&mut out);
+            Ok(out)
+        }
+        Err(e) => Err(format!("{event} param {name} must be a JSON value: {e}")),
+    }
 }
 
 /// Check one value against `enum` and `pattern`.

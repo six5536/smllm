@@ -3,7 +3,7 @@
 
 use std::io::Read;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -255,6 +255,39 @@ impl InstructionSource for Files {
 }
 
 impl Matcher for Files {
+    // sokf-implements: AGT-3_AC-10
+    /// The errors of `value` against the bundled `schema`, with
+    /// `jsonschema`, which fetches no schema from the network or a file.
+    /// A value or a schema that can't be read refuses the value, so that no
+    /// value passes unchecked.
+    fn check_json(&self, schema: &str, value: &str) -> Option<Vec<String>> {
+        let validator = match json_validator(schema) {
+            Ok(v) => v,
+            Err(e) => return Some(vec![e]),
+        };
+        let value: serde_json::Value = match serde_json::from_str(value) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(vec![format!(
+                    "smllm can't check the value against the schema: {e}"
+                )]);
+            }
+        };
+        Some(
+            validator
+                .iter_errors(&value)
+                .map(|e| match e.instance_path().to_string() {
+                    p if p.is_empty() => format!("at the root: {e}"),
+                    p => format!("at {p}: {e}"),
+                })
+                .collect(),
+        )
+    }
+
+    fn checks_json(&self) -> bool {
+        true
+    }
+
     fn is_match(&self, pattern: &str, value: &str) -> Result<bool, String> {
         regex::Regex::new(pattern)
             .map(|r| r.is_match(value))
@@ -264,25 +297,96 @@ impl Matcher for Files {
 
 impl Clock for Files {
     fn now_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
+        fixed_now().unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64)
+        })
     }
 }
 
-/// OS randomness.
+// sokf-implements: DOC-1_AC-7
+/// In a debug build, the time that `SMLLM_NOW` fixes, in seconds since the
+/// Unix epoch, so that the example test of the documentation sees the same
+/// times on every run. A release build ignores the variable.
+fn fixed_now() -> Option<u64> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let secs: u64 = std::env::var("SMLLM_NOW").ok()?.parse().ok()?;
+    secs.checked_mul(1000)
+}
+
+/// The validator of a bundled JSON Schema, with `format` an annotation, as
+/// both drafts make it by default, or why smllm can't use the schema. The
+/// check of a value and `smllm validate` share it.
+pub(crate) fn json_validator(schema: &str) -> Result<jsonschema::Validator, String> {
+    let schema: serde_json::Value =
+        serde_json::from_str(schema).map_err(|e| format!("smllm can't use the schema: {e}"))?;
+    jsonschema::options()
+        .should_validate_formats(false)
+        .build(&schema)
+        .map_err(|e| format!("smllm can't use the schema: {e}"))
+}
+
+/// OS randomness, or in a debug build a sequence fixed by `SMLLM_SEED`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OsIds;
 
 impl Ids for OsIds {
     fn random(&mut self) -> u64 {
-        getrandom::u64().unwrap_or_else(|_| Files.now_ms() ^ u64::from(std::process::id()) << 32)
+        seeded().unwrap_or_else(|| {
+            getrandom::u64()
+                .unwrap_or_else(|_| Files.now_ms() ^ u64::from(std::process::id()) << 32)
+        })
     }
+}
+
+/// The next draw of the sequence that `SMLLM_SEED` fixes, in a debug build.
+/// Each draw depends on the seed, the command's arguments, and the number of
+/// draws before it, so that the example test of the documentation sees the
+/// same session keys and instance IDs on every run, and two commands don't
+/// draw the same ID. A release build ignores the variable.
+// sokf-implements: DOC-1_AC-4
+fn seeded() -> Option<u64> {
+    static DRAWS: AtomicU64 = AtomicU64::new(0);
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let seed: u64 = std::env::var("SMLLM_SEED").ok()?.parse().ok()?;
+    // FNV-1a over the arguments.
+    let mut args = 0xCBF2_9CE4_8422_2325_u64;
+    for arg in std::env::args_os().skip(1) {
+        for b in arg.as_encoded_bytes().iter().chain(&[0]) {
+            args = (args ^ u64::from(*b)).wrapping_mul(0x0100_0000_01B3);
+        }
+    }
+    Some(draw(seed ^ args, DRAWS.fetch_add(1, Ordering::Relaxed)))
+}
+
+/// Draw `n` of the sequence that `start` begins: SplitMix64, whose steps are
+/// distinct for distinct `n` and whose mix is a bijection, so the draws of one
+/// sequence never repeat.
+fn draw(start: u64, n: u64) -> u64 {
+    let mut z = start.wrapping_add(n.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // sokf-tests: DOC_P-1
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(512))]
+        #[test]
+        fn the_draws_of_one_run_never_repeat(start: u64, a in 0..u64::MAX / 2, b in 0..u64::MAX / 2) {
+            proptest::prop_assume!(a != b);
+            proptest::prop_assert_ne!(draw(start, a), draw(start, b));
+        }
+    }
     use smllm_core::SmallMap;
 
     fn call<'a>(params: &'a SmallMap<Value>, env: &'a [(String, String)]) -> Call<'a> {

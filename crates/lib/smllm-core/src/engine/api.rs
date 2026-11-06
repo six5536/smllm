@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::engine::audit::{self, Ask};
 use crate::engine::turn::Turn;
 use crate::engine::{ParamValue, idle, machine};
-use crate::host::{Action, Guard, Host, HostError};
+use crate::host::{Action, Guard, Host, HostError, Matcher};
 use crate::model::{ActionDef, Config, GuardDef, Transition};
 use crate::prelude::*;
 use crate::record::Session;
@@ -195,6 +195,27 @@ impl Engine {
                 }
                 for t in &s.always {
                     transition(t, &m.id, &s.name, &mut note);
+                }
+            }
+        }
+        out
+    }
+
+    // sokf-implements: ENG-4_AC-5
+    /// The `json` params with a schema that `matcher` can't check, whose
+    /// values the engine then takes unchecked (ENG-4).
+    pub fn unchecked_schemas(&self, matcher: &dyn Matcher) -> Vec<String> {
+        if matcher.checks_json() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for m in &self.config.machines {
+            for (name, e) in m.events.iter() {
+                for p in e.params.iter().filter(|p| p.schema.is_some()) {
+                    out.push(format!(
+                        "{}.{name}.{}: this host cannot check the schema of a json param",
+                        m.id, p.name
+                    ));
                 }
             }
         }

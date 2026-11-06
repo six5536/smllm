@@ -175,6 +175,21 @@ pub trait InstructionSource {
 pub trait Matcher {
     /// Whether `value` matches `pattern`.
     fn is_match(&self, pattern: &str, value: &str) -> Result<bool, String>;
+
+    /// The errors of the JSON text `value` against the JSON Schema `schema`,
+    /// each with the JSON path of the value that fails: empty when the value
+    /// passes, and `None` when the host checks no schema, which is the
+    /// default (AGT-3).
+    fn check_json(&self, schema: &str, value: &str) -> Option<Vec<String>> {
+        let _ = (schema, value);
+        None
+    }
+
+    /// Whether [`Matcher::check_json`] checks a schema, without a check. A
+    /// host that checks overrides both.
+    fn checks_json(&self) -> bool {
+        false
+    }
 }
 
 /// Wall-clock time.

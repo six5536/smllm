@@ -37,8 +37,20 @@ impl Finding {
             msg.push_str(": ");
         }
         msg.push_str(&self.message);
+        // sokf-implements: FMT-6_AC-2
+        // The hint is a second sentence of advice (the formatting standard
+        // keeps an em dash without spaces, and prefers a sentence).
         if let Some(h) = &self.hint {
-            msg.push_str(&format!(" — {h}"));
+            msg.push_str(". ");
+            // The name smllm stays lowercase at the start of a sentence.
+            let mut c = h.chars();
+            match c.next() {
+                Some(first) if !h.starts_with("smllm") => {
+                    msg.extend(first.to_uppercase());
+                    msg.push_str(c.as_str());
+                }
+                _ => msg.push_str(h),
+            }
         }
         let mut f = report::Finding::new(self.level, shown, msg);
         f.line = self.line;

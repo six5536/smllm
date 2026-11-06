@@ -22,10 +22,13 @@ pub(crate) fn valid_pattern(
     match regex::Regex::new(pattern) {
         Ok(re) => Some(re),
         Err(e) => {
-            let first = e.to_string().lines().last().unwrap_or_default().to_string();
+            // The regex library's last line reads `error: <why>`.
+            let text = e.to_string();
+            let last = text.lines().last().unwrap_or_default();
+            let why = last.strip_prefix("error: ").unwrap_or(last);
             c.error(
                 path,
-                format!("invalid pattern {pattern}: {first}"),
+                format!("invalid pattern {pattern:?}: {why}"),
                 None,
                 "FMT-4",
             );
@@ -167,7 +170,9 @@ fn host_note(c: &mut Checker<'_>, events: &SmallMap<EventDef>) {
             "only the host fires the events {}, so the machine needs a host to drive it",
             hosts.join(", ")
         ),
-        Some("a harness can't start an instance; a host fires the events through fire_as_host"),
+        Some(
+            "A harness can't start an instance of it, and a host that embeds the engine fires these events",
+        ),
         "FMT-4",
     );
 }
@@ -207,7 +212,15 @@ fn lower_params(
                 "FMT-2",
             );
         }
-        let enum_values = prop.enum_values.clone().unwrap_or_default();
+        // sokf-implements: FMT-10_AC-9
+        // A `json` param's `enum` and `pattern` get only the findings of
+        // FMT-10, which forbids them.
+        let json = prop.kind.as_deref() == Some("json");
+        let enum_values = if json {
+            Vec::new()
+        } else {
+            prop.enum_values.clone().unwrap_or_default()
+        };
         if prop.enum_values.as_ref().is_some_and(Vec::is_empty) {
             c.error(
                 &pp,
@@ -219,7 +232,7 @@ fn lower_params(
         if let Some(d) = &prop.description {
             check_fences(c, &pp, d);
         }
-        let pattern = prop.pattern.as_ref().filter(|pat| {
+        let pattern = prop.pattern.as_ref().filter(|_| !json).filter(|pat| {
             let Some(re) = valid_pattern(c, &pp.key("pattern"), pat) else {
                 return false;
             };

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use smllm_core::host::HostError;
 use smllm_core::record::{Instance, Status};
 
-use super::{other, read_json, safe, write};
+use super::{other, read_json, read_json_why, safe, write};
 
 const ACTIVE: &str = "active";
 const INTERRUPTED: &str = "interrupted";
@@ -152,7 +152,7 @@ pub(super) fn unreadable_markers(dir: &Path) -> Vec<(PathBuf, String)> {
     let mut out: Vec<(PathBuf, String)> = rd
         .flatten()
         .map(|e| e.path())
-        .filter_map(|p| read_json::<Bucket>(&p).err().map(|e| (p, e.to_string())))
+        .filter_map(|p| read_json_why::<Bucket>(&p).err().map(|why| (p, why)))
         .collect();
     out.sort();
     out
@@ -168,10 +168,10 @@ fn scan_shelf(dir: &Path, out: &mut (Vec<Instance>, Vec<(PathBuf, String)>)) {
         if !p.extension().is_some_and(|x| x == "json") {
             continue;
         }
-        match read_json::<Instance>(&p) {
+        match read_json_why::<Instance>(&p) {
             Ok(Some(i)) => out.0.push(i),
             Ok(None) => {}
-            Err(e) => out.1.push((p, e.to_string())),
+            Err(why) => out.1.push((p, why)),
         }
     }
 }

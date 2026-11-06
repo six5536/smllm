@@ -65,7 +65,7 @@ pub(crate) fn check(c: &mut Checker<'_>, m: &Machine) {
                             &ypath!["states", start, "always"],
                             format!("always transitions loop: {} → {start}", path.join(" → ")),
                             Some(
-                                "smllm leaves a state with always at once, so the loop might never stop; break it with an event",
+                                "smllm leaves a state with always at once, so the loop might never stop. Break it with an event",
                             ),
                             "AGT-5",
                         );

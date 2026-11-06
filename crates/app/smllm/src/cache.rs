@@ -1,10 +1,12 @@
 //! The MCP server's loaded configs, kept between calls
 //! (MCP-1). Each call checks the files a load depended on, the way git checks
 //! its index ("racy git"): a file whose size or modification time changed is
-//! read and compared; so is one whose time is not clearly older than the load,
-//! since an edit within the same timestamp tick would look unchanged; one that
-//! was missing is looked for again. Any difference rebuilds. Everything else
-//! is trusted, so after a tick a call reads no config file.
+//! read and compared with the bytes kept after the load; one that was missing
+//! is looked for again. Any difference rebuilds. A file whose time is not
+//! clearly older than the load may have changed after the load read it, even
+//! within the same timestamp tick, so the cache keeps no bytes for it, and the
+//! next call loads again. Everything else is trusted, so after a tick a call
+//! reads no config file.
 
 use std::fs;
 use std::path::PathBuf;
@@ -23,15 +25,22 @@ const RACY: Duration = Duration::from_secs(2);
 /// What a load saw of one input file.
 struct Seen {
     path: PathBuf,
-    /// `None` when the file was missing.
-    file: Option<(SystemTime, u64, Vec<u8>)>,
+    /// `None` when the file was missing. The bytes are `None` when the file
+    /// was too recent to tell whether the load read these bytes.
+    file: Option<(SystemTime, u64, Option<Vec<u8>>)>,
 }
 
 impl Seen {
-    fn now(path: PathBuf) -> Self {
-        let file = fs::metadata(&path)
-            .ok()
-            .and_then(|m| Some((m.modified().ok()?, m.len(), fs::read(&path).ok()?)));
+    /// The file after a load that started at `built`. The bytes are read
+    /// before the time, so a save after the read gives a recent time, and the
+    /// cache keeps no bytes for it.
+    fn after(path: PathBuf, built: SystemTime) -> Self {
+        let bytes = fs::read(&path).ok();
+        let file = fs::metadata(&path).ok().and_then(|m| {
+            let t = m.modified().ok()?;
+            let bytes = if t + RACY >= built { None } else { bytes };
+            Some((t, m.len(), bytes))
+        });
         Self { path, file }
     }
 
@@ -44,6 +53,10 @@ impl Seen {
         match (&mut self.file, meta) {
             (None, None) => true,
             (Some((time, len, bytes)), Some((t, l))) => {
+                // The load may have read other bytes than any the cache has.
+                let Some(bytes) = bytes else {
+                    return false;
+                };
                 let racy = t + RACY >= built;
                 if (t, l) == (*time, *len) && !racy {
                     return true;
@@ -96,7 +109,7 @@ impl ConfigCache {
         let mut inputs: Vec<Seen> = Vec::new();
         for p in &runtime.inputs {
             if !inputs.iter().any(|s| &s.path == p) {
-                inputs.push(Seen::now(p.clone()));
+                inputs.push(Seen::after(p.clone(), built));
             }
         }
         self.entries.push(Entry {
@@ -178,6 +191,29 @@ mod tests {
         let first = cache.runtime(&files).unwrap() as *const Runtime;
         let again = cache.runtime(&files).unwrap() as *const Runtime;
         assert_eq!(first, again);
+        fs::remove_dir_all(d).ok();
+    }
+
+    // A save after the load read the file and before the cache reads it: the
+    // cache can't tell which bytes the load saw, so the next call loads again.
+    // sokf-tests: MCP-1_AC-4
+    #[test]
+    fn a_recent_file_is_never_trusted() {
+        let d = crate::test_support::temp_dir("cache-race");
+        let m = d.join("m.smllm.yaml");
+        let built = SystemTime::now();
+        fs::write(&m, machine("m", "bbb")).unwrap();
+        set_time(&m, built);
+        let mut seen = Seen::after(m.clone(), built);
+        assert!(
+            !seen.unchanged(built),
+            "the load may have read the old bytes"
+        );
+        // A file older than the load is trusted, as before.
+        let old = built - Duration::from_secs(60);
+        set_time(&m, old);
+        let mut seen = Seen::after(m.clone(), built);
+        assert!(seen.unchanged(built));
         fs::remove_dir_all(d).ok();
     }
 }

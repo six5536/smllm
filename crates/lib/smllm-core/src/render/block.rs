@@ -110,14 +110,14 @@ impl Block {
     }
 }
 
-/// One offered event as `- NAME — GUIDANCE`, then one indented line for
+/// One offered event as `- NAME: GUIDANCE`, then one indented line for
 /// each param (AGT-2): the events list and the state's text for a model
 /// without tools share it. `schemas`: show each JSON param's schema.
 pub(crate) fn push_offer(out: &mut String, offer: &Offer, schemas: bool) {
     out.push_str("- ");
     out.push_str(&offer.name);
     if let Some(d) = &offer.description {
-        out.push_str(" — ");
+        out.push_str(": ");
         out.push_str(d);
     }
     out.push('\n');

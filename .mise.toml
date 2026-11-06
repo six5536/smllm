@@ -22,6 +22,9 @@ gh = "latest"
 # Writes the release notes from the commit subjects (cliff.toml). Matches the
 # version that the release and export workflows install.
 git-cliff = "2.14.2"
+# Builds the documentation site from docs/ (scripts/docs-build.mjs, book.toml).
+# Matches the version that the mirror's publish workflow installs.
+"cargo:mdbook" = "0.5.4"
 # The knowledge store's validator (knowledge/, .sokf/config.toml). sokf is the
 # maintainer's own package, younger than mise's minimum package age, so this entry
 # alone approves it.

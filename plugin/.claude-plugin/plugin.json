@@ -1,6 +1,6 @@
 {
   "name": "smllm",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "State machines for LLM agents: smllm's hooks and MCP tool for Claude Code. Needs the smllm binary on PATH (npm install -g @six5536/smllm).",
   "author": {
     "name": "six5536"

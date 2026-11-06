@@ -11,6 +11,56 @@ use clap::CommandFactory;
 
 use crate::cli::Cli;
 
+// sokf-implements: CLI-10_AC-2
+/// The commands and their options as Markdown, rendered by `clap-markdown`
+/// for the documentation's page of the commands.
+pub fn markdown() -> String {
+    let options = clap_markdown::MarkdownOptions::new()
+        .title("Commands and options".to_string())
+        .show_footer(false);
+    let raw = clap_markdown::help_markdown_command_custom(&Cli::command(), &options);
+    // clap-markdown heads each list with `###### **Options:**`, five levels
+    // below its command, opens with a sentence of its own, writes `*` items
+    // without a full stop, and marks the links of its contents with `↴`.
+    let mut out = String::new();
+    let mut fenced = false;
+    for line in raw.lines() {
+        if line.starts_with("```") {
+            fenced = !fenced;
+        }
+        if fenced || line.starts_with("```") {
+            out.push_str(line);
+            out.push('\n');
+        } else if line.starts_with("This document contains the help content") {
+            out.push_str("This page lists each command of `smllm`, with its arguments and its options, as `smllm COMMAND --help` prints them.\n");
+        } else if line == "**Command Overview:**" {
+            out.push_str("The commands:\n");
+        } else if let Some(label) = line
+            .strip_prefix("###### **")
+            .and_then(|l| l.strip_suffix(":**"))
+        {
+            let _ = writeln!(out, "### {label}");
+        } else if let Some(item) = line.strip_prefix("* ") {
+            let item = item.replace('↴', "");
+            let stop = if item.ends_with('.') || item.ends_with(')') && item.starts_with('[') {
+                ""
+            } else {
+                "."
+            };
+            let _ = writeln!(out, "- {item}{stop}");
+        } else if let Some(url) = line.strip_prefix("Documentation: ") {
+            // The help's last line, a paragraph of its own.
+            let _ = write!(out, "\nDocumentation: <{url}>\n");
+        } else if line.is_empty() && out.ends_with("\n\n") {
+            // One blank line between blocks.
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 // sokf-implements: CLI-10_AC-1
 /// Render the complete man page as roff.
 pub fn render() -> std::io::Result<Vec<u8>> {

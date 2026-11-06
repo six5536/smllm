@@ -26,6 +26,8 @@ export interface RawHost {
   run(kind: string, params: string, env: string, cwd: string): string;
   read(file: string): string | undefined;
   isMatch(pattern: string, value: string): boolean;
+  checksJson(): boolean;
+  checkJson(schema: string, value: string): string;
   now(): number;
   random(): number;
   history(machine: string, id: string, entry: string): void;
@@ -72,6 +74,10 @@ function adapt(host: Host): RawHost {
     read: (file) => host.read?.(file) ?? undefined,
     isMatch: (pattern, value) =>
       host.isMatch ? host.isMatch(pattern, value) : new RegExp(pattern).test(value),
+    checksJson: () => typeof host.checkJson === "function",
+    // `checksJson` guards the call; an answer that isn't a list of strings,
+    // such as `undefined`, reaches the engine as `null`, which refuses it.
+    checkJson: (schema, value) => JSON.stringify(host.checkJson!(parse(schema), parse(value)) ?? null),
     now: () => (host.now ? host.now() : Date.now()),
     random: () => (host.random ? host.random() : crypto.getRandomValues(new Uint32Array(1))[0]!),
     history: (machine, id, entry) => {

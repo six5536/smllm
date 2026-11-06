@@ -9,8 +9,9 @@ use serde_json::{Map, Value};
 
 use crate::lower::{Checker, YPath as P};
 use crate::source::{
-    CommandParams, EventMeta, InstanceMeta, MachineFile, MachineMeta, ParamsSchema, PromptParams,
-    PropSchema, RefMeta, SharedActionSrc, StateMeta, StateNode, TransitionSrc, VisitsParams,
+    CommandParams, EventMeta, InstanceMeta, InvokeSrc, MachineFile, MachineMeta, ParamsSchema,
+    PromptParams, PropSchema, RefMeta, SharedActionSrc, StateMeta, StateNode, TransitionSrc,
+    VisitsParams,
 };
 
 /// A source type's keys, in the order of its JSON Schema. A test checks each
@@ -46,7 +47,8 @@ source_keys! {
     RefMeta => ["param", "description", "pattern"], [];
     SharedActionSrc => ["states", "position", "entry", "exit"], ["states", "position"];
     StateMeta => ["entryPoint", "fallback", "paramDescriptions"], [];
-    StateNode => ["description", "type", "meta", "entry", "exit", "on", "always"], [];
+    InvokeSrc => ["src", "input"], ["src"];
+    StateNode => ["description", "type", "meta", "entry", "exit", "on", "always", "invoke"], [];
     TransitionSrc => ["target", "guard", "actions", "reenter", "description"], [];
     VisitsParams => ["state", "atLeast"], ["state", "atLeast"];
 }
@@ -60,9 +62,9 @@ macro_rules! keys {
 
 /// XState keys smllm v1 does not support: an error with a v1 hint.
 // sokf-implements: FMT-1_AC-2
-const UNSUPPORTED: [&str; 11] = [
-    "states", "initial", "invoke", "after", "context", "output", "tags", "history", "onDone",
-    "types", "version",
+const UNSUPPORTED: [&str; 10] = [
+    "states", "initial", "after", "context", "output", "tags", "history", "onDone", "types",
+    "version",
 ];
 
 fn kind(v: &Value) -> &'static str {
@@ -115,7 +117,7 @@ impl Walk<'_, '_> {
                 self.err(
                     &path.key(k),
                     format!("`{k}` is not supported"),
-                    Some("smllm supports only part of XState: flat atomic and final states, without delays, invocations, or context"),
+                    Some("smllm supports only part of XState: flat atomic and final states, without delays or context, and an invoke of only src and input"),
                     "FMT-1",
                 );
             } else {
@@ -349,6 +351,33 @@ impl Walk<'_, '_> {
         if let Some(ts) = present(m.get("always")) {
             self.transitions(&p.key("always"), ts);
         }
+        match present(m.get("invoke")) {
+            Some(Value::Array(items)) if items.len() == 1 => {
+                self.invoke(&p.key("invoke"), &items[0])
+            }
+            Some(Value::Array(items)) => {
+                let ip = p.key("invoke");
+                for (i, it) in items.iter().enumerate() {
+                    self.invoke(&ip.index(i), it);
+                }
+            }
+            Some(v) => self.invoke(&p.key("invoke"), v),
+            None => {}
+        }
+    }
+
+    /// One `invoke`: `src`, a string, and `input`, a map of fixed values.
+    fn invoke(&mut self, p: &P<'_>, v: &Value) {
+        let k = keys!(InvokeSrc);
+        let Some(m) = self.map(p, v, k.allowed, k.required) else {
+            return;
+        };
+        self.string(&p.key("src"), m.get("src"));
+        if let Some(input) = present(m.get("input"))
+            && !input.is_object()
+        {
+            self.wrong(&p.key("input"), "a map", input);
+        }
     }
 
     fn transitions(&mut self, p: &P<'_>, v: &Value) {
@@ -399,7 +428,7 @@ impl Walk<'_, '_> {
                 self.err(
                     p,
                     format!("unknown action `{s}`"),
-                    Some("write an action as {type, params}; only setRef can be a bare name"),
+                    Some("write an action as {type, params}. Only setRef can be a bare name"),
                     "FMT-3",
                 );
             }
@@ -545,12 +574,59 @@ pub(crate) fn check(c: &mut Checker<'_>, doc: &Value) {
 /// JSON Schema, such as `const: null`.
 pub(crate) fn normalise(doc: &mut Value) {
     let schemas = take_schemas(doc);
+    let inputs = take_inputs(doc);
     strip(doc);
     for (event, param, schema) in schemas {
         if let Some(p) = props_mut(doc, &event).and_then(|ps| ps.get_mut(&param)) {
             p["schema"] = schema;
         }
     }
+    for (state, index, input) in inputs {
+        let Some(invoke) = doc
+            .get_mut("states")
+            .and_then(|s| s.get_mut(&state))
+            .and_then(|s| s.get_mut("invoke"))
+        else {
+            continue;
+        };
+        let item = match index {
+            Some(i) => invoke.get_mut(i),
+            None => Some(invoke),
+        };
+        if let Some(Value::Object(item)) = item {
+            item.insert("input".to_string(), input);
+        }
+    }
+}
+
+/// Take the `input` of each state's `invoke` out of `doc`, with its state
+/// and its index in a list, because a null in it is a fixed value of the
+/// host's work, not an absent key.
+fn take_inputs(doc: &mut Value) -> Vec<(String, Option<usize>, Value)> {
+    let mut out = Vec::new();
+    let Some(states) = doc.get_mut("states").and_then(Value::as_object_mut) else {
+        return out;
+    };
+    for (name, state) in states.iter_mut() {
+        let mut take = |item: &mut Value, index: Option<usize>| {
+            if let Some(m) = item.as_object_mut()
+                && m.get("input").is_some_and(Value::is_object)
+                && let Some(input) = m.remove("input")
+            {
+                out.push((name.clone(), index, input));
+            }
+        };
+        match state.get_mut("invoke") {
+            Some(Value::Array(items)) => {
+                for (i, item) in items.iter_mut().enumerate() {
+                    take(item, Some(i));
+                }
+            }
+            Some(item) => take(item, None),
+            None => {}
+        }
+    }
+    out
 }
 
 /// The `properties` of `meta.events.<event>.params`.
@@ -668,6 +744,7 @@ mod tests {
             RefMeta,
             SharedActionSrc,
             StateMeta,
+            InvokeSrc,
             StateNode,
             TransitionSrc,
             VisitsParams

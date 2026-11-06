@@ -401,3 +401,52 @@ jobs:
             dist/out/*.tar.gz
             dist/out/*.zip
             dist/out/SHA256SUMS
+
+  # ---------------------------------------------------------------------------
+  # 5. Publish the documentation site on GitHub Pages, from the tagged tree.
+  #    A prerelease leaves the site alone, so that the site matches what
+  #    `npm install` gives a reader. The repository's Pages setting must name
+  #    GitHub Actions as its source, and the deployment rules of the
+  #    environment `github-pages` must allow the tags `v*`, because GitHub
+  #    allows only the default branch by default.
+  # ---------------------------------------------------------------------------
+  # sokf-implements: DOC-3_AC-1
+  site:
+    name: documentation site
+    needs: [meta, publish]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      # The version matches the one in .mise.toml.
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2.89.0
+        with:
+          tool: mdbook@0.5.4
+
+      # The build fails when a link of a page leads to no file, and links each
+      # file outside the site to GitHub at the release's tag.
+      - name: Build the site
+        run: |
+          node scripts/docs-build.mjs --tag "$GITHUB_REF_NAME"
+          mdbook build
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/docs/html
+
+      - name: Deploy the site
+        id: deploy
+        uses: actions/deploy-pages@v5

@@ -8,7 +8,7 @@ description: Use when the user wants smllm's state (state machine, state, instan
 `smllm statusline` reads Claude Code's status JSON on stdin and prints one row for the session bound
 to its `session_id`, such as `smllm dev › WORK (visit 3) · issue GH-123` or `smllm idle · 2 paused`.
 It prints nothing when there is nothing to show, and it always exits 0. `smllm statusline --json`
-prints the same fields as JSON, for custom rows. Reference: https://github.com/six5536/smllm/blob/main/docs/statusline.md
+prints the same fields as JSON, for custom rows. Reference: https://github.com/six5536/smllm/blob/main/docs/reference/statusline.md
 
 Claude Code runs one `statusLine` command, and each line that the command prints is one row. Add
 smllm as its own row to the user's command. Never replace or reorder the user's existing rows.

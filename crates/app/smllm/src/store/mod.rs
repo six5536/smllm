@@ -27,12 +27,20 @@ fn other(e: impl std::fmt::Display) -> HostError {
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, HostError> {
-    let Some(text) = fs_kit::read_text(path).map_err(other)? else {
-        return Ok(None);
+    read_json_why(path).map_err(|why| other(format!("{}: {why}", smllm_format::path_text(path))))
+}
+
+/// The JSON of the file at `path`, `None` when there is no file, or why it
+/// can't be read, without the path, for a finding that names the file.
+fn read_json_why<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(smllm_format::io_reason(&e)),
     };
     serde_json::from_str(&text)
         .map(Some)
-        .map_err(|e| other(format!("{}: {e}", smllm_format::path_text(path))))
+        .map_err(|e| format!("it isn't valid JSON: {e}"))
 }
 
 /// Write via a temp file + rename, so readers never see half a file.
@@ -566,7 +574,10 @@ mod tests {
                 write();
                 done.store(true, Ordering::SeqCst);
             });
-            while !done.load(Ordering::SeqCst) {
+            // One more look after the writer stops, so a writer that finishes
+            // before the first look still leaves something to check.
+            loop {
+                let finished = done.load(Ordering::SeqCst);
                 let paths: Vec<PathBuf> = if path.is_dir() {
                     fs::read_dir(path)
                         .unwrap()
@@ -582,6 +593,9 @@ mod tests {
                         check(&text);
                         seen += 1;
                     }
+                }
+                if finished {
+                    break;
                 }
             }
         });

@@ -3,7 +3,7 @@
 
 use crate::Error;
 use crate::engine::machine::{self, commit, owned, takeover_note};
-use crate::engine::offer::{ParamValue, check_value, idle_offers, text_params};
+use crate::engine::offer::{ParamValue, check_value, idle_offers, startable, text_params};
 use crate::engine::turn::Turn;
 use crate::engine::{Location, Reply, api::random_id};
 use crate::host::newest_first;
@@ -92,22 +92,30 @@ fn list(
     let prompts = core::mem::take(&mut turn.prompts);
     b.instructions(&prompts);
 
-    if turn.config.machines.is_empty() {
+    let machines: Vec<&Machine> = turn
+        .config
+        .machines
+        .iter()
+        .filter(|m| startable(m, turn.under_harness))
+        .collect();
+    if machines.is_empty() {
         b.line("No state machines are configured.");
     } else {
         b.line("State machines:");
     }
-    for m in &turn.config.machines {
+    for m in machines {
         match &m.description {
-            Some(d) => b.line(&format!("- {} — {d}", m.id)),
+            Some(d) => b.line(&format!("- {}: {d}", m.id)),
             None => b.line(&format!("- {}", m.id)),
         };
-        let mut id_line = format!("    {} id param: {}", m.instance.kind, m.instance.ref_param);
-        if let Some(d) = &m.instance.ref_description {
-            id_line.push_str(&format!(" — {d}"));
-        }
+        // sokf-implements: AGT-9_AC-4
+        // As a param line: `KIND id param PARAM (pattern: P): DESCRIPTION`.
+        let mut id_line = format!("    {} id param {}", m.instance.kind, m.instance.ref_param);
         if let Some(p) = &m.instance.ref_pattern {
             id_line.push_str(&format!(" (pattern: {p})"));
+        }
+        if let Some(d) = &m.instance.ref_description {
+            id_line.push_str(&format!(": {d}"));
         }
         b.line(&id_line);
         let eps = join(m.entry_point_names());
@@ -148,6 +156,7 @@ fn list(
     }
     let offers = idle_offers(
         turn.config,
+        turn.under_harness,
         interrupted.as_ref().map(|(m, i)| (*m, i)),
         (total > IDLE_PAUSED).then_some(total),
     );
@@ -213,6 +222,7 @@ fn list_paused(turn: &mut Turn<'_, '_>) -> Result<Reply, Error> {
     paused_lines(&mut b, &paused);
     let offers = idle_offers(
         turn.config,
+        turn.under_harness,
         interrupted.as_ref().map(|(m, i)| (*m, i)),
         (total > IDLE_PAUSED).then_some(total),
     );
@@ -384,25 +394,28 @@ fn enter(turn: &mut Turn<'_, '_>, params: &[(String, String)]) -> Result<Reply, 
             let saved_exists = machine.state(&inst.state).is_some();
             let arrival = match (&state_param, inst.status, saved_exists) {
                 (None, Status::Completed, _) => {
-                    let eps = join(machine.entry_point_names());
-                    let msg = format!(
-                        "{kind} {} is completed; to reopen it, fire enter with state: one of {}",
-                        inst.label(),
-                        if eps.is_empty() {
-                            "(none: no state is an entry point)".to_string()
-                        } else {
-                            eps
-                        }
-                    );
+                    let eps: Vec<&str> = machine.entry_point_names().collect();
+                    let msg = if eps.is_empty() {
+                        format!(
+                            "{kind} {} is completed, and no state is an entry point to reopen it at",
+                            inst.label()
+                        )
+                    } else {
+                        format!(
+                            "{kind} {} is completed. To reopen it, fire enter with state: {}",
+                            inst.label(),
+                            one_of(&eps)
+                        )
+                    };
                     return reply(turn, false, Some(msg));
                 }
                 (None, _, false) => {
-                    let all = join(machine.state_names());
+                    let all: Vec<&str> = machine.state_names().collect();
                     let msg = format!(
-                        "saved state {} of {kind} {} no longer exists; fire enter with state: one of {}",
+                        "saved state {} of {kind} {} no longer exists. Fire enter with state: {}",
                         inst.state,
                         inst.label(),
-                        all
+                        one_of(&all)
                     );
                     return reply(turn, false, Some(msg));
                 }
@@ -581,18 +594,27 @@ fn resume(turn: &mut Turn<'_, '_>) -> Result<Reply, Error> {
         }
     };
     if machine.state(&inst.state).is_none() {
-        let all = join(machine.state_names());
+        let all: Vec<&str> = machine.state_names().collect();
         let msg = format!(
-            "saved state {} no longer exists; fire enter with stateMachine {}, {} {}, state: one of {}",
+            "saved state {} no longer exists. Fire enter with stateMachine {}, {} {}, state: {}",
             inst.state,
             machine.id,
             machine.instance.ref_param,
             inst.label(),
-            all
+            one_of(&all)
         );
         return reply(turn, false, Some(msg));
     }
     let target = inst.state.clone();
     start(turn, machine, &mut inst, &target, Some(&target));
     commit(turn, machine, inst, Some(&target), "resume".to_string())
+}
+
+/// A choice of names for the agent: the name itself when there is one,
+/// and `one of A, B` otherwise.
+fn one_of(names: &[&str]) -> String {
+    match names {
+        [one] => (*one).to_string(),
+        _ => format!("one of {}", join(names.iter().copied())),
+    }
 }

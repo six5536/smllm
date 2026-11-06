@@ -1,7 +1,7 @@
 //! The rules that `smllm validate` cites: each finding ends with the code of
 //! the rule that it breaks, such as `(FMT-4)`. [`RULES`] lists every code that
 //! a finding can carry, and [`markdown`] renders the list as the page that
-//! `smllm info rules` prints and `docs/validate-rules.md` holds. A test of the
+//! `smllm info rules` prints and `docs/reference/validate-rules.md` holds. A test of the
 //! CLI checks that the page is current, and a test of this module checks that
 //! every code in the source is listed.
 // sokf-implements: FMT-6_AC-1
@@ -23,12 +23,12 @@ pub const RULES: &[Rule] = &[
     Rule {
         code: "FMT-1",
         title: "The machine file",
-        checks: "The file is YAML that parses, sets `meta.smllm: 1`, and has at least one state. Its keys are the known ones, each required key is present, and each value has the expected type. The machine's ID and its state names have the allowed characters, and no other machine in the config has the same ID or one that differs only in case. The file uses only the part of XState v5 that smllm supports: flat atomic and final states, without nested or parallel states, delays, invocations, or context.",
+        checks: "The file is YAML that parses, sets `meta.smllm: 1`, and has at least one state. Its keys are the known ones, each required key is present, and each value has the expected type. The machine's ID and its state names have the allowed characters, and no other machine in the config has the same ID or one that differs only in case. The file uses only the part of XState v5 that smllm supports: flat atomic and final states, without nested or parallel states, delays, or context, and with an `invoke` of only `src` and `input`.",
     },
     Rule {
         code: "FMT-2",
         title: "States and transitions",
-        checks: "A final state has no `on` or `always`, isn't an entry point, and can be reached. A machine without a final state gets an info finding, because its instances never complete. At most one state is the fallback, and the fallback isn't final. A state doesn't handle a built-in event under `on`, a list of guarded transitions ends with one without a guard, and neither the ref param nor any other param has the name of a param of `enter`. An event with the ref param sets the ref.",
+        checks: "A final state has no `on` or `always`, isn't an entry point, and can be reached. A machine without a final state gets an info finding, because its instances never complete. At most one state is the fallback, and the fallback isn't final. A state doesn't handle a built-in event under `on`, a list of guarded transitions ends with one without a guard, and neither the ref param nor any other param has the name of a param of `enter`. An event with the ref param sets the ref. A state with an `invoke` handles an event of `source: host`, which carries the work's result, and each `invoke` names its `src`.",
     },
     Rule {
         code: "FMT-3",
@@ -47,7 +47,7 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         code: "FMT-6",
-        title: "Findings",
+        title: "Files that smllm reads",
         checks: "smllm can read each file that the config names.",
     },
     Rule {
@@ -57,7 +57,7 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         code: "AGT-1",
-        title: "Entry block",
+        title: "Author text",
         checks: "Author text, such as a prompt or an event's description, contains none of the closing tags `</smllm>`, `</instructions>`, and `</events>` that fence smllm's own text, because the agent couldn't then tell smllm's text from the author's. A finding under this rule is a warning.",
     },
     Rule {
@@ -82,8 +82,8 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         code: "CLI-3",
-        title: "Saved instances",
-        checks: "Each saved instance is in a state that still exists.",
+        title: "Configs and saved instances",
+        checks: "smllm can read and parse each config file, and each saved instance is in a state that still exists.",
     },
     Rule {
         code: "CLI-11",

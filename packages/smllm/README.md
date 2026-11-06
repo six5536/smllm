@@ -1,6 +1,6 @@
 # smllm
 
-smllm runs state machines for large language model (LLM) coding agents. This README helps you
+smllm runs state machines for large language model (LLM) agents. This README helps you
 install smllm from npm and run its first commands. It covers installation, usage, where to find
 the full documentation, and the licence.
 

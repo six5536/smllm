@@ -52,6 +52,9 @@ states:
       pages: READ
       timed_out: FAILED
   CHECKING:
+    # The host runs its checks of the extractor, and fires checks_passed or
+    # checks_failed.
+    invoke: { src: runChecks }
     entry: { type: prompt, params: { text: The host checks the extractor. } }
     on:
       checks_passed: ACCEPTED

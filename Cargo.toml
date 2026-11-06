@@ -12,7 +12,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 authors = ["six5536 <10079653+six5536@users.noreply.github.com>"]
 edition = "2024"
 rust-version = "1.98.1"
@@ -29,6 +29,8 @@ bgi-stroked-fonts = { version = "0.2", default-features = false, features = ["sa
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
 clap_mangen = "0.3"
+clap-markdown = "0.1"
+jsonschema = { version = "0.60", default-features = false }
 etcetera = "0.11"
 getrandom = "0.4"
 regex = "1.13"
@@ -53,9 +55,9 @@ proptest = "1.11"
 
 # Internal crates
 agent-harness-adapter-core = "0.1"
-smllm-core = { path = "crates/lib/smllm-core", version = "0.6.0", default-features = false }
-smllm-format = { path = "crates/lib/smllm-format", version = "0.6.0" }
-smllm-json = { path = "crates/lib/smllm-json", version = "0.6.0" }
+smllm-core = { path = "crates/lib/smllm-core", version = "0.7.0", default-features = false }
+smllm-format = { path = "crates/lib/smllm-format", version = "0.7.0" }
+smllm-json = { path = "crates/lib/smllm-json", version = "0.7.0" }
 
 # Release builds of the native CLI optimise for speed: opt-level 2 runs as
 # fast as 3 and builds a smaller binary.

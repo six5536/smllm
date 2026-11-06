@@ -260,6 +260,30 @@ pub struct State {
     pub always: Vec<Transition>,
     /// `meta.paramDescriptions`: event → param → prompt (FMT-4).
     pub param_descriptions: SmallMap<SmallMap<String>>,
+    /// `invoke`: the host's work while an instance is in this state, in
+    /// file order.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub invoke: Vec<Invoke>,
+}
+
+/// One piece of the host's work that a state names: XState's `invoke`, with
+/// only `src` and `input`. The engine runs nothing: the host's view of the
+/// state shows it, and the host fires the work's result as an event of
+/// `source: host`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Invoke {
+    /// The name of the work, by which the host finds its code.
+    pub src: String,
+    /// The fixed values of the work, as compact JSON text of an object.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub input: Option<String>,
 }
 
 impl State {

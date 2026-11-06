@@ -206,6 +206,7 @@ pub(crate) fn open(turn: &Turn<'_, '_>, machine: &Machine, inst: &Instance) -> B
     ))
 }
 
+// sokf-implements: AGT-1_AC-6
 /// [`open`], then `Arrived by`, `Params`, notes, trace and failures.
 pub(crate) fn head(
     turn: &Turn<'_, '_>,
@@ -221,7 +222,20 @@ pub(crate) fn head(
         let ps: Vec<String> = turn
             .params
             .iter()
-            .map(|(k, v)| format!("{k} = {}", quote(v)))
+            .map(|(k, v)| {
+                // A `json` param holds JSON text, which the line shows as
+                // JSON, not as a quoted string.
+                let json = machine.events.get(&turn.event).is_some_and(|e| {
+                    e.params
+                        .iter()
+                        .any(|p| p.name == *k && p.kind == crate::model::ParamKind::Json)
+                });
+                if json {
+                    format!("{k} = {v}")
+                } else {
+                    format!("{k} = {}", quote(v))
+                }
+            })
             .collect();
         b.line(&format!("Params: {}", join(ps.iter().map(String::as_str))));
     }

@@ -52,6 +52,14 @@ extern "C" {
     /// ECMA-262 `new RegExp(pattern).test(value)`.
     #[wasm_bindgen(method, catch, js_name = isMatch)]
     fn is_match(this: &JsHost, pattern: &str, value: &str) -> Result<bool, JsValue>;
+    /// Whether the host checks a JSON value against its schema; missing
+    /// means no.
+    #[wasm_bindgen(method, catch, js_name = checksJson)]
+    fn checks_json(this: &JsHost) -> Result<bool, JsValue>;
+    /// The errors of the JSON text `value` against the JSON Schema `schema`,
+    /// as a JSON array of strings.
+    #[wasm_bindgen(method, catch, js_name = checkJson)]
+    fn check_json(this: &JsHost, schema: &str, value: &str) -> Result<String, JsValue>;
     /// `Date.now()`.
     #[wasm_bindgen(method, catch)]
     fn now(this: &JsHost) -> Result<f64, JsValue>;
@@ -165,6 +173,26 @@ impl Matcher for Js<'_> {
         self.0
             .is_match(pattern, value)
             .map_err(|e| thrown("isMatch", &e))
+    }
+
+    // sokf-implements: WASM-1_AC-3
+    /// The host's `checkJson`, when its `checksJson` says that it checks: a
+    /// throw or an answer that isn't a list of strings is an error of the
+    /// value, so a broken check never lets a value through.
+    fn check_json(&self, schema: &str, value: &str) -> Option<Vec<String>> {
+        if !Matcher::checks_json(self) {
+            return None;
+        }
+        Some(match self.0.check_json(schema, value) {
+            Ok(text) => smllm_json::from_str::<Vec<String>>(&text).unwrap_or_else(|e| {
+                vec![format!("host checkJson answered no list of strings: {e}")]
+            }),
+            Err(e) => vec![thrown("checkJson", &e)],
+        })
+    }
+
+    fn checks_json(&self) -> bool {
+        self.0.checks_json().unwrap_or(false)
     }
 }
 
@@ -361,6 +389,28 @@ impl ToJson for Offers<'_> {
     }
 }
 
+// sokf-implements: WASM-9_AC-2
+/// The state's invocations, each `{src, input}`, with `input` as JSON.
+struct Invokes<'a>(&'a [smllm_core::model::Invoke]);
+
+impl ToJson for Invokes<'_> {
+    fn write_json(&self, out: &mut String) {
+        out.push('[');
+        for (i, inv) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let mut o = smllm_json::object(out);
+            o.field("src", &inv.src);
+            if let Some(input) = &inv.input {
+                o.field("input", &Raw(input));
+            }
+            o.end();
+        }
+        out.push(']');
+    }
+}
+
 struct ParamViews<'a>(&'a [smllm_core::ParamView]);
 
 impl ToJson for ParamViews<'_> {
@@ -452,10 +502,13 @@ impl Engine {
         f(&self.engine, &mut host)
     }
 
-    /// Guard and action kinds this host cannot run, as a JSON array.
+    /// Guard and action kinds this host cannot run, and the `json` params
+    /// whose schema it can't check, as a JSON array.
     pub fn unsupported(&mut self) -> String {
         let js = Js(&self.host);
-        json(&self.engine.unsupported(&js, &js))
+        let mut out = self.engine.unsupported(&js, &js);
+        out.extend(self.engine.unchecked_schemas(&js));
+        json(&out)
     }
 
     /// Bind a session; returns the reply JSON (its `session` is the key).
@@ -665,7 +718,8 @@ impl Engine {
         let mut o = smllm_json::object(&mut out);
         o.field("location", &v.location)
             .field("model", &Offers(&v.model))
-            .field("host", &Offers(&v.host));
+            .field("host", &Offers(&v.host))
+            .field("invoke", &Invokes(&v.invoke));
         o.end();
         Ok(out)
     }

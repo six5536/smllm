@@ -172,7 +172,7 @@
           ]
         },
         "source": {
-          "description": "Who fires the event: `agent`, the default, or `host`. Only the host fires a `host` event, through `fire_as_host`, and the agent never sees it.",
+          "description": "Who fires the event: `agent`, the default, or `host`. Only the host that embeds the engine fires a `host` event, and the agent never sees it.",
           "anyOf": [
             {
               "$ref": "#/$defs/EventSource"
@@ -298,7 +298,7 @@
           "const": "agent"
         },
         {
-          "description": "Only the host that embeds the engine, through `fire_as_host`.",
+          "description": "Only the host that embeds the engine.",
           "type": "string",
           "const": "host"
         }
@@ -595,6 +595,17 @@
               "type": "null"
             }
           ]
+        },
+        "invoke": {
+          "description": "The host's work while an instance is in this state. The state\nhandles an event of `source: host`, through which the host fires the\nwork's result.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany_InvokeSrc"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
@@ -797,6 +808,42 @@
       "required": [
         "state",
         "atLeast"
+      ]
+    },
+    "OneOrMany_InvokeSrc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InvokeSrc"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InvokeSrc"
+          }
+        }
+      ]
+    },
+    "InvokeSrc": {
+      "description": "The host's work while an instance is in its state: XState's `invoke`,\nwith only `src` and `input`. The host runs the work and fires its result\nas an event of `source: host`.",
+      "type": "object",
+      "properties": {
+        "src": {
+          "description": "The name of the work, by which the host finds its code.",
+          "type": "string"
+        },
+        "input": {
+          "description": "Fixed values that the host passes to the work.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "src"
       ]
     }
   }

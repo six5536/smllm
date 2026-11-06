@@ -13,9 +13,9 @@ extractor, which the checks catch.
 The example has these files:
 
 - `extractor-build.smllm.yaml` is the machine. In `READ`, the model answers with `extractor` or
-  `pages`, and the host can fire `timed_out`. In `CHECKING`, only the host fires: `checks_passed`
-  goes to `ACCEPTED`, and `checks_failed` goes back to `READ`, or to `FAILED` after five visits of
-  `READ`.
+  `pages`, and the host can fire `timed_out`. In `CHECKING`, which invokes the host's work
+  `runChecks`, only the host fires: `checks_passed` goes to `ACCEPTED`, and `checks_failed` goes
+  back to `READ`, or to `FAILED` after five visits of `READ`.
 - `prompts/read.md` holds the instructions of `READ`.
 - `schemas/extractor.json` and `schemas/rule.json` are the JSON Schema of the param `json` of
   `extractor`. The loader bundles both files into the compiled machine.

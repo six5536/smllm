@@ -70,7 +70,12 @@ fn run() -> Result<u8> {
         Command::Statusline(a) => statusline::statusline(&a),
         Command::Mcp => mcp::serve(explicit),
         Command::Completions(a) => completions(&a),
-        Command::Man => man::render().map_err(output::stdout_err).and_then(|b| {
+        Command::Man(a) if a.markdown => {
+            agent_harness_adapter_core::cli::write_stdout(man::markdown().as_bytes())
+                .map_err(output::stdout_err)?;
+            Ok(output::EXIT_OK)
+        }
+        Command::Man(_) => man::render().map_err(output::stdout_err).and_then(|b| {
             agent_harness_adapter_core::cli::write_stdout(&b).map_err(output::stdout_err)?;
             Ok(output::EXIT_OK)
         }),

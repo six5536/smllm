@@ -37,5 +37,5 @@ pub use locate::locate;
 pub use path_text::{path_text, system_path_text};
 pub use schema::json_schema;
 pub use smllm_core::host::InstructionSource;
-pub use sources::{FileSource, MemorySource};
+pub use sources::{FileSource, MemorySource, io_reason};
 pub use template::{config_template, machine_template};

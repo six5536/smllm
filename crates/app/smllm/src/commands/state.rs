@@ -95,11 +95,15 @@ pub fn instance_list(args: &JsonArgs, explicit: Option<&Path>) -> Result<u8> {
             .as_deref()
             .map(|h| format!("  held by {h}"))
             .unwrap_or_default();
+        // An instance without a ref is labelled by its ID, shown once.
+        let name = if i.label() == i.id {
+            i.id.clone()
+        } else {
+            format!("{} ({})", i.label(), i.id)
+        };
         out.push_str(&format!(
-            "{}  {} ({})  {}  {}{held}\n",
+            "{}  {name}  {}  {}{held}\n",
             i.machine,
-            i.label(),
-            i.id,
             i.state,
             i.status.as_str()
         ));

@@ -66,12 +66,14 @@ pub enum Command {
     Mcp,
     /// Print a shell completion script to stdout.
     Completions(CompletionsArgs),
-    /// Print the roff man page to stdout.
+    /// Print the roff man page to stdout, or with `--markdown` the commands
+    /// and their options as Markdown.
     ///
     /// The man command is hidden, because it is for packaging: the release
-    /// archives include its output.
+    /// archives include its roff, and the documentation's page of the
+    /// commands holds its Markdown.
     #[command(hide = true)]
-    Man,
+    Man(ManArgs),
 }
 
 /// `init`.
@@ -263,6 +265,14 @@ pub enum InfoCommand {
     Schema,
     /// Print the rules that validate checks, with the code that each finding ends with, as Markdown.
     Rules,
+}
+
+/// `man`.
+#[derive(Debug, Args)]
+pub struct ManArgs {
+    /// Print the commands and their options as Markdown.
+    #[arg(long)]
+    pub markdown: bool,
 }
 
 /// `compile`.

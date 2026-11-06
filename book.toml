@@ -1,0 +1,15 @@
+# The documentation site. `node scripts/docs-build.mjs` writes its source
+# from docs/, and `mdbook build` writes the site into target/docs/html.
+
+[book]
+title = "smllm"
+description = "smllm guides an LLM agent through a workflow with a state machine."
+language = "en"
+src = "target/docs/src"
+
+[build]
+build-dir = "target/docs/html"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/six5536/smllm"

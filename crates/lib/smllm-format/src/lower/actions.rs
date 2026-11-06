@@ -147,7 +147,7 @@ pub(crate) fn lower_actions(
                 c.error(
                     p,
                     format!("unknown action `{s}`"),
-                    Some("write an action as {type, params}; only setRef can be a bare name"),
+                    Some("write an action as {type, params}. Only setRef can be a bare name"),
                     "FMT-3",
                 );
                 None

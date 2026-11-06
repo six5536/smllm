@@ -82,7 +82,7 @@ pub struct EventMeta {
     /// The event's params: a JSON Schema object of string and JSON properties.
     #[serde(default)]
     pub params: Option<ParamsSchema>,
-    /// Who fires the event: `agent`, the default, or `host`. Only the host fires a `host` event, through `fire_as_host`, and the agent never sees it.
+    /// Who fires the event: `agent`, the default, or `host`. Only the host that embeds the engine fires a `host` event, and the agent never sees it.
     #[serde(default)]
     pub source: Option<EventSource>,
 }
@@ -93,7 +93,7 @@ pub struct EventMeta {
 pub enum EventSource {
     /// The agent, through the `smllm` tool or `smllm fire`.
     Agent,
-    /// Only the host that embeds the engine, through `fire_as_host`.
+    /// Only the host that embeds the engine.
     Host,
 }
 
@@ -185,6 +185,19 @@ pub enum StateType {
     Final,
 }
 
+/// The host's work while an instance is in its state: XState's `invoke`,
+/// with only `src` and `input`. The host runs the work and fires its result
+/// as an event of `source: host`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct InvokeSrc {
+    /// The name of the work, by which the host finds its code.
+    pub src: String,
+    /// Fixed values that the host passes to the work.
+    #[serde(default)]
+    pub input: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
 /// One state.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -211,6 +224,11 @@ pub struct StateNode {
     /// Transitions without an event. smllm leaves a state with `always` at once.
     #[serde(default)]
     pub always: Option<Transitions>,
+    /// The host's work while an instance is in this state. The state
+    /// handles an event of `source: host`, through which the host fires the
+    /// work's result.
+    #[serde(default)]
+    pub invoke: Option<OneOrMany<InvokeSrc>>,
 }
 
 /// smllm's data for a state.

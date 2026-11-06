@@ -10,7 +10,7 @@ use smllm_json::{Error, Fields, FromJson, JsonValue, ToJson, object};
 use crate::engine::{InstanceStatus, Location, Reply, SessionStatus};
 use crate::host::MemoryStore;
 use crate::model::{
-    ActionDef, Config, EventDef, GuardDef, InstanceSpec, Machine, On, ParamKind, ParamSpec,
+    ActionDef, Config, EventDef, GuardDef, InstanceSpec, Invoke, Machine, On, ParamKind, ParamSpec,
     Position, Prompt, SharedAction, State, Transition, Value,
 };
 use crate::prelude::*;
@@ -119,6 +119,12 @@ object!(State {
     on: "on" req,
     always: "always" req,
     param_descriptions: "paramDescriptions" req,
+    invoke: "invoke" skip,
+});
+
+object!(Invoke {
+    src: "src" req,
+    input: "input" skip_default,
 });
 
 object!(On {

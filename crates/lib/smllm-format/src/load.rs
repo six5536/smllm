@@ -188,7 +188,7 @@ fn load_machine_inputs(
                 Severity::Error,
                 path,
                 None,
-                format!("cannot read: {e}"),
+                format!("can't read: {e}"),
                 "FMT-6",
             ));
             return (None, findings, Vec::new());
@@ -270,7 +270,7 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                     Severity::Error,
                     &cf.path,
                     None,
-                    format!("cannot read: {e}"),
+                    format!("can't read: {}", crate::io_reason(&e)),
                     "CLI-3",
                 ));
                 continue;
@@ -296,8 +296,10 @@ pub fn load_configs(files: &[ConfigFile], mode: Mode) -> Loaded {
                         &cf.path,
                         None,
                         format!(
-                            "smllm does not load machines {} from earlier configs while this file has errors, because it might replace them",
-                            ids.join(", ")
+                            "smllm doesn't load the {} {} from earlier configs while this file has errors, because this file might replace {}",
+                            if ids.len() == 1 { "machine" } else { "machines" },
+                            ids.join(", "),
+                            if ids.len() == 1 { "it" } else { "them" },
                         ),
                         "FMT-7",
                     ));

@@ -8,7 +8,7 @@ use crate::engine::offer::{BUILTINS, Offer, for_agent, machine_offers};
 use crate::engine::turn::Turn;
 use crate::engine::{Engine, Error, Location};
 use crate::host::Host;
-use crate::model::Machine;
+use crate::model::{Invoke, Machine};
 use crate::prelude::*;
 use crate::record::{Instance, Session, Status};
 use crate::render;
@@ -28,6 +28,9 @@ pub struct HostView {
     /// [`Engine::fire_as_host`]: those that the machine marks with
     /// `source: host`.
     pub host: Vec<Offer>,
+    /// The host's work that the state invokes, in file order: the host runs
+    /// each and fires its result through [`Engine::fire_as_host`].
+    pub invoke: Vec<Invoke>,
 }
 
 /// The held instance of session `key`, when the session holds one that is
@@ -37,8 +40,13 @@ type Held<'c> = (Session, &'c Machine, Instance);
 /// The view of `inst` in its state: the offered events without the
 /// built-ins, the model's apart from the host's.
 fn view_of(machine: &Machine, inst: &Instance) -> HostView {
+    // sokf-implements: ENG-10_AC-3
     let mut view = HostView {
         location: location(machine, inst),
+        invoke: machine
+            .state(&inst.state)
+            .map(|s| s.invoke.clone())
+            .unwrap_or_default(),
         ..HostView::default()
     };
     for offer in machine_offers(machine, machine.state(&inst.state), inst) {

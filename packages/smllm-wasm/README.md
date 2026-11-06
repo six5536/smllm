@@ -23,7 +23,7 @@ engine:
 ```js
 import init, { Engine, memoryStorage } from "@six5536/smllm-wasm"; // or from "@six5536/smllm-wasm/bundler"
 
-await init(); // the bundler build needs no init
+await init(); // in a browser or Node.js, while the bundler build needs no init
 const compiled = await (await fetch("machines.json")).json(); // `smllm compile`
 const engine = new Engine(
   compiled,
@@ -65,6 +65,11 @@ host leaves the method out:
 - `read(file)` reads a prompt file. `smllm compile` inlines prompt files, so a host rarely needs
   this method.
 - `isMatch(pattern, value)` matches a pattern. By default, it uses `new RegExp`.
+- `checkJson(schema, value)` checks a `json` param's value against its schema, and returns one
+  message for each error, such as `at /steps: [] has fewer than 1 item`, or none when the value
+  passes. The engine refuses an event whose value has errors. The package has no validator of its
+  own, so give it one of yours, such as Ajv's. Without `checkJson`, the engine takes the value
+  unchecked, and `unsupported()` names each `json` param with a schema.
 - `now()` returns the time. By default, it uses `Date.now`.
 - `random()` returns a random number. By default, it uses `crypto.getRandomValues`.
 - `history(machine, id, entry)` and `put(kind, key, record)` receive writes. By default, the
@@ -157,9 +162,12 @@ model that the host calls through the Messages API with no tools. The host shows
 state, reads its answer as one event, runs its own checks, and fires the results. Four methods
 serve it, and none of them changes anything:
 
-- `hostView(key)` returns `{ location, model, host }`: where the session is, the events that the
-  model can fire, and the events that only the host fires. Each event has its `name`,
-  `description`, and `params`, and a JSON param has its bundled `schema` as an object.
+- `hostView(key)` returns `{ location, model, host, invoke }`: where the session is, the events
+  that the model can fire, the events that only the host fires, and the host's work that the
+  state invokes. Each event has its `name`, `description`, and `params`, and a JSON param has its
+  bundled `schema` as an object. Each `invoke` has its `src`, the name of the work, and its
+  `input`, an object of fixed values, if the machine gives one: run the work, then fire its result
+  with `fireAsHost`.
 - `stateText(key, { schemas })` returns the state's text for the model: its instructions, the
   model's events with their params, and a request to answer with one event as JSON. Each JSON
   param shows its schema, unless `schemas` is `false`.
@@ -194,12 +202,25 @@ for (;;) {
       }
       prompt = answer.error; // the refusal, as it stands; count it as an attempt
     }
+  } else if (view.invoke.length > 0) {
+    // The state names its work, so the host finds its code by name, not by the state's.
+    for (const { src, input } of view.invoke) await work[src](session, input);
   } else {
+    throw new Error(`nothing to do in ${view.location.state}`); // a person's step: wait for them
+  }
+}
+```
+
+`work` maps each `src` to the host's code, which fires the work's result:
+
+```js
+const work = {
+  async runChecks(session) {
     const errors = await runChecks(extractor); // your checks, which can be async
     if (errors.length === 0) engine.fireAsHost(session, "checks_passed");
     else engine.fireAsHost(session, "checks_failed", { errors: errors.join("\n") });
-  }
-}
+  },
+};
 ```
 
 The model is never offered a built-in event, such as `yield`, `pause`, or `unmatched`, or a

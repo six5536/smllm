@@ -1,6 +1,6 @@
 [package]
 name = "smllm"
-description = "State machines for LLM agents: declarative XState-style machines that drive a coding agent's turn loop through its hooks and one MCP tool."
+description = "State machines for LLM agents: declarative XState-style machines that drive an agent's turn loop through its hooks and one MCP tool."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -29,6 +29,8 @@ bgi-stroked-fonts.workspace = true
 clap = { workspace = true }
 clap_complete = { workspace = true }
 clap_mangen = { workspace = true }
+clap-markdown = { workspace = true }
+jsonschema = { workspace = true }
 etcetera.workspace = true
 getrandom.workspace = true
 regex.workspace = true
@@ -45,3 +47,4 @@ wait-timeout.workspace = true
 [dev-dependencies]
 assert_cmd = { workspace = true }
 insta = { workspace = true }
+proptest = { workspace = true }

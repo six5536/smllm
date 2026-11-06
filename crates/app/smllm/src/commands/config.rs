@@ -41,7 +41,7 @@ pub fn init(args: &InitArgs) -> Result<u8> {
         output::text(&format!("created {}\n", output::shown(&path)))?;
     } else {
         output::text(&format!(
-            "{} already exists; nothing changed\n",
+            "{} already exists, so nothing changed\n",
             output::shown(&path)
         ))?;
     }
@@ -85,7 +85,8 @@ pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
         .clone()
         .map_or(config_dir.clone(), |d| here.join(d));
     let file = dir.join(format!("{}.smllm.yaml", args.id));
-    if file.exists() {
+    // A dangling symlink counts too: the write would follow it.
+    if std::fs::symlink_metadata(&file).is_ok() {
         return Err(Error::msg(format!(
             "{} already exists",
             output::shown(&file)
@@ -93,8 +94,34 @@ pub fn new(args: &NewArgs, explicit: Option<&Path>) -> Result<u8> {
     }
     // Prepare the config edit first: a failure leaves every file as found (CLI-12).
     let registered = register(&config, &config_dir, &file)?;
-    write_atomic(&file, &text)?;
-    write_atomic(&config, &registered)?;
+    // The folders that the write creates, deepest first.
+    let created: Vec<&Path> = dir.ancestors().take_while(|d| !d.exists()).collect();
+    let unmake = || {
+        for d in &created {
+            let _ = std::fs::remove_dir(d);
+        }
+    };
+    if let Err(e) = write_atomic(&file, &text) {
+        unmake();
+        return Err(e.into());
+    }
+    // A config that can't be written takes the new machine file, and the
+    // folders made for it, with it.
+    // sokf-implements: CLI-12_AC-1
+    if let Err(e) = write_atomic(&config, &registered) {
+        let e = Error::from(e);
+        return Err(match std::fs::remove_file(&file) {
+            Ok(()) => {
+                unmake();
+                e
+            }
+            Err(why) => Error::msg(format!(
+                "{e}; {} stays, because smllm couldn't remove it: {}",
+                output::shown(&file),
+                smllm_format::io_reason(&why)
+            )),
+        });
+    }
     if args.json {
         output::json(
             &json!({ "id": args.id, "path": smllm_format::path_text(&file), "config": smllm_format::path_text(&config) }),
@@ -145,6 +172,42 @@ fn relative(base: &Path, path: &Path) -> PathBuf {
     out
 }
 
+// sokf-implements: FMT-10_AC-10
+/// The schemas of `json` params that smllm can't use to check a value
+/// (FMT-10), such as one with a `pattern` that isn't a regular expression,
+/// which would refuse every value at run time.
+fn unusable_schemas(rt: &Runtime) -> Findings {
+    let mut out = Findings::default();
+    for src in &rt.sources {
+        let Some(m) = rt.engine.config().machine(&src.id) else {
+            continue;
+        };
+        for (event, e) in m.events.iter() {
+            for p in &e.params {
+                let Some(schema) = &p.schema else { continue };
+                if let Err(why) = crate::host::json_validator(schema) {
+                    out.push(Finding {
+                        level: Severity::Error,
+                        file: src.file.clone(),
+                        line: None,
+                        path: Some(format!(
+                            "meta.events.{event}.params.properties.{}.schema",
+                            p.name
+                        )),
+                        message: why,
+                        hint: Some(
+                            "correct the schema, so that smllm can check the param's values"
+                                .to_string(),
+                        ),
+                        rule: "FMT-10",
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Saved instances whose state no longer exists (CLI-3), and instance
 /// files that cannot be read (skipped everywhere else, STORE-1).
 // sokf-implements: CLI-3_AC-2
@@ -157,9 +220,9 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                 file,
                 line: None,
                 path: None,
-                message: format!("cannot read the ref marker of {}: {why}", src.id),
+                message: format!("can't read the ref marker of {}: {why}", src.id),
                 hint: Some(
-                    "smllm finds these refs more slowly without the marker, and rewrites the marker when it next sets one of them; do not delete the marker, because smllm reads a missing marker as no such ref".to_string(),
+                    "smllm finds these refs more slowly without the marker, and rewrites the marker when it next sets one of them. Don't delete the marker, because smllm reads a missing marker as no such ref".to_string(),
                 ),
                 rule: "STORE-1",
             });
@@ -171,8 +234,8 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                 file,
                 line: None,
                 path: None,
-                message: format!("cannot read the instance file of {}: {why}", src.id),
-                hint: Some("smllm skips it; fix or delete the file".to_string()),
+                message: format!("can't read the instance file of {}: {why}", src.id),
+                hint: Some("smllm skips it, so fix or delete the file".to_string()),
                 rule: "STORE-1",
             });
         }
@@ -188,11 +251,11 @@ fn saved_states(rt: &mut Runtime) -> Findings {
                     line: None,
                     path: None,
                     message: format!(
-                        "saved instance {} is in state {}, which no longer exists; to repair it, enter it with a state",
+                        "saved instance {} is in state {}, which no longer exists",
                         i.label(),
                         i.state
                     ),
-                    hint: None,
+                    hint: Some("to repair it, fire enter with its ref and a state".to_string()),
                     rule: "CLI-3",
                 });
             }
@@ -216,6 +279,7 @@ pub fn validate(args: &ValidateArgs, explicit: Option<&Path>) -> Result<u8> {
         let mut rt = Runtime::checked(&files)?;
         findings.extend(rt.findings.clone());
         findings.extend(saved_states(&mut rt));
+        findings.extend(unusable_schemas(&rt));
     } else {
         for p in &args.paths {
             let p = here.join(p);
@@ -226,6 +290,7 @@ pub fn validate(args: &ValidateArgs, explicit: Option<&Path>) -> Result<u8> {
                 }])?;
                 findings.extend(rt.findings.clone());
                 findings.extend(saved_states(&mut rt));
+                findings.extend(unusable_schemas(&rt));
             } else {
                 findings.extend(load_machine(&p, Mode::Check).1);
             }

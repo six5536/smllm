@@ -226,17 +226,30 @@ pub(crate) fn agent_offers(
     offers
 }
 
+// sokf-implements: ENG-6_AC-3
+/// Whether the agent can start `machine`: under a harness, not a machine
+/// that only a host can drive, whose `enter` the engine refuses (ENG-6).
+pub(crate) fn startable(machine: &Machine, under_harness: bool) -> bool {
+    !under_harness || !machine.events.iter().any(|(_, e)| e.host_only)
+}
+
 /// Events offered in idle: `enter`, `resume` when an instance is
 /// interrupted, and `listPaused` when the idle list left some of `paused`
 /// out (AGT-9).
 // sokf-implements: AGT-10_AC-8
 pub(crate) fn idle_offers(
     config: &Config,
+    under_harness: bool,
     interrupted: Option<(&Machine, &Instance)>,
     paused: Option<usize>,
 ) -> Vec<Offer> {
+    let startable: Vec<&Machine> = config
+        .machines
+        .iter()
+        .filter(|m| startable(m, under_harness))
+        .collect();
     let mut ref_params: Vec<&str> = Vec::new();
-    for m in &config.machines {
+    for m in &startable {
         if !ref_params.contains(&m.instance.ref_param.as_str()) {
             ref_params.push(&m.instance.ref_param);
         }
@@ -248,16 +261,16 @@ pub(crate) fn idle_offers(
             ParamView {
                 name: "stateMachine".to_string(),
                 required: true,
-                enum_values: config.machines.iter().map(|m| m.id.clone()).collect(),
+                enum_values: startable.iter().map(|m| m.id.clone()).collect(),
                 description: Some("The state machine to enter.".to_string()),
                 ..ParamView::default()
             },
             ParamView {
                 name: join_with(&mut ref_params.iter().copied(), " | "),
                 description: Some(
-                    "The id param shown for the state machine above: an existing id or ref \
-                     continues that instance, and a new ref starts one with it. Omit it to \
-                     start a new instance."
+                    "The id param that the list of state machines names for the machine: an \
+                     existing id or ref continues that instance, and a new ref starts one with \
+                     it. Omit it to start a new instance."
                         .to_string(),
                 ),
                 ..ParamView::default()
@@ -265,8 +278,9 @@ pub(crate) fn idle_offers(
             ParamView {
                 name: "state".to_string(),
                 description: Some(
-                    "An entry point to enter instead. Omit it to enter a new instance at the \
-                     initial state, or an existing one at its saved state."
+                    "An entry point to enter instead, or any state for an instance whose saved \
+                     state no longer exists. Omit it to enter a new instance at the initial \
+                     state, or an existing one at its saved state."
                         .to_string(),
                 ),
                 ..ParamView::default()
@@ -349,14 +363,65 @@ pub(crate) fn check_params(
                 compact_json(&offer.name, &p.name, s)?
             }
         };
+        if p.kind == ParamKind::Json {
+            check_schema(&offer.name, p, &value, matcher)?;
+        }
         out.push((p.name.clone(), value));
     }
     Ok(out)
 }
 
+// sokf-implements: AGT-3_AC-10
+/// Check a JSON param's value against its schema through the host, which
+/// returns one error for each part that fails, or nothing when it checks no
+/// schema (AGT-3).
+fn check_schema(
+    event: &str,
+    p: &ParamView,
+    value: &str,
+    matcher: &dyn Matcher,
+) -> Result<(), String> {
+    let Some(schema) = &p.schema else {
+        return Ok(());
+    };
+    match matcher.check_json(schema, value) {
+        // One sentence for each error, on the one line of the error: at
+        // most `MAX_ERRORS`, each at most `MAX_ERROR` characters, because an
+        // error can repeat the whole value.
+        Some(errors) if errors.iter().any(|e| !e.trim().is_empty()) => {
+            const MAX_ERRORS: usize = 10;
+            const MAX_ERROR: usize = 200;
+            let errors: Vec<&String> = errors.iter().filter(|e| !e.trim().is_empty()).collect();
+            let mut msg = format!("{event} param {} doesn't match its schema", p.name);
+            for e in errors.iter().take(MAX_ERRORS) {
+                msg.push_str(". ");
+                // The name smllm stays lowercase at the start of a sentence.
+                let e = e.trim();
+                let mut c = e.chars();
+                if let Some(first) = c.next() {
+                    if e.starts_with("smllm") {
+                        msg.push(first);
+                    } else {
+                        msg.extend(first.to_uppercase());
+                    }
+                }
+                let rest: String = c.by_ref().take(MAX_ERROR - 1).collect();
+                msg.push_str(&rest);
+                if c.next().is_some() {
+                    msg.push('…');
+                }
+            }
+            if errors.len() > MAX_ERRORS {
+                msg.push_str(&format!(". And {} more", errors.len() - MAX_ERRORS));
+            }
+            Err(msg)
+        }
+        _ => Ok(()),
+    }
+}
+
 /// A JSON param's value as compact JSON text, or the error that names the
-/// param (FMT-10). The engine never checks the value against the schema:
-/// the host does.
+/// param (FMT-10). The host checks the value against the schema.
 // sokf-implements: AGT-3_AC-6
 // sokf-implements: AGT-3_AC-7
 fn compact_json(event: &str, name: &str, text: &str) -> Result<String, String> {

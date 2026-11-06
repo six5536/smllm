@@ -98,6 +98,9 @@ export interface AuditEntry {
  *   A command's `params.cwd` is relative to the compiled config file (`nodeHost`'s `configDir`).
  * - `read`: prompt files (`smllm compile` inlines them, so rarely needed).
  * - `isMatch`: `new RegExp(pattern).test(value)` by default.
+ * - `checkJson`: the errors of a `json` param's value against its schema, one message each, such as
+ *   `at /steps: [] has fewer than 1 item`, and none when the value passes. Without it, the engine takes
+ *   the value unchecked, and `unsupported()` names each such param.
  * - `now`, `random`: `Date.now()` and `crypto.getRandomValues` by default.
  * - `history`: each history entry as it happens; dropped by default.
  * - `put`: each session, binding and instance as it is saved (write-through storage); dropped by default.
@@ -113,6 +116,7 @@ export interface Host {
   run?(kind: string, params: Record<string, unknown>, env: Record<string, string>, cwd: string): string | void;
   read?(file: string): string | undefined;
   isMatch?(pattern: string, value: string): boolean;
+  checkJson?(schema: Record<string, unknown> | boolean, value: unknown): string[];
   now?(): number;
   random?(): number;
   history?(machine: string, id: string, entry: HistoryEntry): void;
@@ -193,6 +197,14 @@ export interface HostView {
   location: Location;
   model: Offered[];
   host: Offered[];
+  /** The host's work that the state invokes: run each, and fire its result with `fireAsHost`. */
+  invoke: Invoked[];
+}
+
+/** One piece of the host's work that a state names with `invoke`: its name, and its fixed input. */
+export interface Invoked {
+  src: string;
+  input?: Record<string, unknown>;
 }
 
 /** A model's answer, checked: the event and its params, ready for `fire`, or the refusal to send back to the model. */

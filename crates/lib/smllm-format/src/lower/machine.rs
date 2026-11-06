@@ -3,13 +3,16 @@
 use std::collections::{HashMap, HashSet};
 
 use smllm_core::BUILTINS;
-use smllm_core::model::{ActionDef, Machine, On, Position, SharedAction, State, Transition};
+use smllm_core::SmallMap;
+use smllm_core::model::{
+    ActionDef, EventDef, Invoke, Machine, On, Position, SharedAction, State, Transition,
+};
 
 use crate::finding::Severity;
 use crate::lower::actions::{Files, check_fences, default_prompt, lower_actions, lower_guard};
 use crate::lower::checker::{Checker, YPath};
 use crate::lower::events::{is_name, lower_events, lower_instance, require_ref};
-use crate::source::{MachineFile, PositionSrc, StateType, StringOr, Transitions};
+use crate::source::{MachineFile, PositionSrc, StateNode, StateType, StringOr, Transitions};
 use crate::ypath;
 
 /// Lower `file`; `None` when there are errors.
@@ -136,7 +139,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                     continue;
                 }
                 used_events.insert(event.to_string());
-                let transitions = lower_transitions(c, files, &ep, ts, &names, true);
+                let transitions = lower_transitions(c, files, &ep, ts, &names, name, true);
                 if sets_ref(&transitions) {
                     set_ref_events.push(event.to_string());
                 }
@@ -147,7 +150,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
             }
         }
         let always = match &node.always {
-            Some(ts) => lower_transitions(c, files, &sp.key("always"), ts, &names, false),
+            Some(ts) => lower_transitions(c, files, &sp.key("always"), ts, &names, name, false),
             None => Vec::new(),
         };
         if !always.is_empty() && !on.is_empty() {
@@ -187,7 +190,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
                         c.error(
                             &pp.key(param),
                             format!("{event} declares no param {param}"),
-                            Some("declare params in meta.events; paramDescriptions can only reword their prompts"),
+                            Some("declare params in meta.events, because paramDescriptions only rewords their prompts"),
                             "FMT-4",
                         );
                     }
@@ -206,6 +209,7 @@ pub(crate) fn lower(c: &mut Checker<'_>, files: &Files<'_>, file: &MachineFile) 
             fallback: meta.fallback,
             entry,
             exit,
+            invoke: lower_invoke(c, &sp, node, &on, &events),
             on,
             always,
             param_descriptions,
@@ -305,6 +309,7 @@ fn lower_transitions(
     path: &YPath<'_>,
     src: &Transitions,
     states: &[&str],
+    here: &str,
     set_ref_ok: bool,
 ) -> Vec<Transition> {
     let many = src.0.len() > 1;
@@ -342,11 +347,12 @@ fn lower_transitions(
             check_fences(c, p, d);
         }
         if lowered.reenter && lowered.target.is_none() {
+            let hint = format!("to re-enter it, add target: {here}");
             c.warning(
                 p,
                 "reenter has no effect without a target, because a transition without one never re-enters"
                     .to_string(),
-                Some("to re-enter it, add target: <this state>"),
+                Some(&hint),
                 "AGT-5",
             );
         }
@@ -405,4 +411,66 @@ fn sets_ref(transitions: &[Transition]) -> bool {
     transitions
         .iter()
         .any(|t| t.actions.contains(&ActionDef::SetRef))
+}
+
+// sokf-implements: FMT-1_AC-4
+// sokf-implements: FMT-2_AC-4
+/// A state's `invoke` → [`Invoke`]s, in file order, and an error when the
+/// state offers no event of `source: host`, through which the host fires
+/// the work's result (FMT-2).
+fn lower_invoke(
+    c: &mut Checker<'_>,
+    sp: &YPath<'_>,
+    node: &StateNode,
+    on: &[On],
+    events: &SmallMap<EventDef>,
+) -> Vec<Invoke> {
+    let Some(list) = &node.invoke else {
+        return Vec::new();
+    };
+    let invoke: Vec<Invoke> = list
+        .0
+        .iter()
+        .map(|i| Invoke {
+            src: i.src.clone(),
+            input: i
+                .input
+                .as_ref()
+                .map(|m| serde_json::Value::Object(m.clone()).to_string()),
+        })
+        .collect();
+    let host_event = on
+        .iter()
+        .any(|o| events.get(&o.event).is_some_and(|e| e.host_only));
+    if !invoke.is_empty() && node.kind == Some(StateType::Final) {
+        c.error(
+            &sp.key("invoke"),
+            "a final state invokes no work, because the instance completes when it enters the state"
+                .to_string(),
+            Some("remove the invoke, or make the state atomic"),
+            "FMT-2",
+        );
+    } else if !invoke.is_empty() && !host_event {
+        c.error(
+            &sp.key("invoke"),
+            "the state invokes the host's work, but handles no event of source: host to carry its result"
+                .to_string(),
+            Some("declare the result as an event of source: host in meta.events, and handle it in the state's on"),
+            "FMT-2",
+        );
+    }
+    let ip = sp.key("invoke");
+    for (i, item) in list.0.iter().enumerate() {
+        if item.src.trim().is_empty() {
+            let item_p = ip.index(i);
+            let p = if list.0.len() > 1 { &item_p } else { &ip };
+            c.error(
+                &p.key("src"),
+                "src is empty".to_string(),
+                Some("give src the name of the host's work"),
+                "FMT-2",
+            );
+        }
+    }
+    invoke
 }

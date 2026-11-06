@@ -4,7 +4,7 @@
 pub fn machine_template(id: &str) -> String {
     format!(
         r#"# yaml-language-server: $schema=https://raw.githubusercontent.com/six5536/smllm/main/schema/smllm.schema.json
-# An XState v5 machine config (a strict subset); smllm data lives under `meta`.
+# An XState v5 machine config, in the subset that smllm reads. smllm's own data is under `meta`.
 id: {id}
 description: What this state machine is for.
 initial: START
@@ -17,7 +17,7 @@ meta:
       description: "The task's id."
   events:
     done:
-      description: Select when the work this state asks for is finished.
+      description: Fire when the work that this state asks for is finished.
 states:
   START:
     meta: {{ entryPoint: true }}

@@ -16,7 +16,21 @@ pub struct FileSource;
 // sokf-implements: FMT-11_AC-1
 impl InstructionSource for FileSource {
     fn read(&self, file: &str) -> Result<Option<String>, String> {
-        agent_harness_adapter_core::fs::read_text(Path::new(file)).map_err(|e| e.to_string())
+        match std::fs::read_to_string(Path::new(file)) {
+            Ok(t) => Ok(Some(t)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(io_reason(&e)),
+        }
+    }
+}
+
+// sokf-implements: FMT-6_AC-3
+/// Why a file can't be read, in words, without its path, which the finding
+/// names, and without the operating system's error code.
+pub fn io_reason(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::InvalidData => "it isn't UTF-8 text".to_string(),
+        kind => kind.to_string(),
     }
 }
 

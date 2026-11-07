@@ -67,7 +67,7 @@ always present, and its value is `null` when it doesn't apply.
 
 | Field         | Type           | Meaning                                              |
 | ------------- | -------------- | ---------------------------------------------------- |
-| `session`     | string         | The smllm session key (`sm-k7f3q2`)                  |
+| `session`     | string         | The smllm session key (`sm-nqvfvw`)                  |
 | `idle`        | bool           | True when the session holds no instance              |
 | `machine`     | string \| null | The state machine of the held instance               |
 | `state`       | string \| null | The held instance's current state                    |
@@ -87,21 +87,80 @@ always present, and its value is `null` when it doesn't apply.
 A later release can add fields. Before version 1.0, a field is renamed or removed only in a minor
 release.
 
-This object shows a session in the `WORK` state:
+The sample in this section comes from a project with this config and this machine:
 
+**`.smllm/config.toml`**
+
+```toml
+[machines]
+files = ["dev.smllm.yaml"]
+```
+
+**`.smllm/dev.smllm.yaml`**
+
+```yaml
+id: dev
+description: Work on an issue, then review the change.
+initial: WORK
+meta:
+  smllm: 1
+  instance:
+    kind: issue
+    ref: { param: issueId, pattern: "^GH-[0-9]+$", description: "The issue's id, such as GH-123." }
+  events:
+    done:
+      description: Fire after the change is made.
+    changes:
+      description: Fire when the review asks for changes.
+    approved:
+      description: Fire when the review approves the change.
+states:
+  WORK:
+    meta: { entryPoint: true }
+    entry: { type: prompt, params: { text: "Make the change, then fire done." } }
+    on:
+      done: REVIEW
+  REVIEW:
+    entry: { type: prompt, params: { text: "Review the change, then fire approved or changes." } }
+    on:
+      changes: WORK
+      approved: DONE
+  DONE:
+    type: final
+```
+
+The session paused the issues `GH-121` and `GH-122`. Then it entered `GH-123`, and the review
+sent the issue back to `WORK` twice, so the session is at its third visit to `WORK`, and
+`smllm statusline --json` prints this object for it:
+
+<!-- example:
+  fire enter stateMachine=dev issueId=GH-121
+  fire pause
+  fire enter stateMachine=dev issueId=GH-122
+  fire pause
+  fire enter stateMachine=dev issueId=GH-123
+  fire done
+  fire changes
+  fire done
+  fire changes
+  statusline
+-->
 ```json
 {
-  "session": "sm-k7f3q2",
+  "session": "sm-nqvfvw",
   "idle": false,
   "machine": "dev",
   "state": "WORK",
   "visit": 3,
   "yielded": false,
-  "instance": { "machine": "dev", "kind": "issue", "id": "i-5z4x7n", "ref": "GH-123", "label": "GH-123", "status": "active" },
+  "instance": { "machine": "dev", "kind": "issue", "id": "i-n7d6tx", "ref": "GH-123", "label": "GH-123", "status": "active" },
   "interrupted": null,
   "paused": 2
 }
 ```
+
+`sm-nqvfvw` is the key of the session, and `i-n7d6tx` is the instance's ID. Your key and your
+instance's ID differ.
 
 ## Other harnesses
 

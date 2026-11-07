@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "priority": { "enum": ["low", "normal", "urgent"] },
+    "labels": { "type": "array", "items": { "$ref": "label.json" }, "minItems": 1 }
+  },
+  "required": ["priority", "labels"],
+  "additionalProperties": false
+}

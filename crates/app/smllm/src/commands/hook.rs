@@ -2,7 +2,7 @@
 //! (HARN-3, HARN-3, HARN-3, HARN-3).
 
 use std::io::Read as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_harness_adapter_core::Harness;
 use agent_harness_adapter_core::harness;
@@ -51,11 +51,17 @@ fn can(h: &dyn Harness, event: Event, answer: &Answer) -> bool {
 /// are kept per harness, the one that sent the input (Cursor running Claude
 /// Code's hooks binds as `cursor`). Only a view loads the session's configs:
 /// a prompt touches the session alone, and a stop the session allows needs
-/// no more (HARN-4).
+/// no more (HARN-4). `explicit` is `--config`, which only the session start
+/// of an unbound session reads.
 // sokf-implements: HARN-3_AC-5
 // sokf-implements: HARN-3_AC-6
 // sokf-implements: HARN-3_AC-2
-pub fn answer(h: &dyn Harness, event: Event, input: &HookInput) -> Result<Answer> {
+pub fn answer(
+    h: &dyn Harness,
+    event: Event,
+    input: &HookInput,
+    explicit: Option<&Path>,
+) -> Result<Answer> {
     let allow = Answer::Allow { stderr: None };
     let harness = if input.harness.is_empty() {
         h.id()
@@ -74,7 +80,7 @@ pub fn answer(h: &dyn Harness, event: Event, input: &HookInput) -> Result<Answer
             if !can(h, event, &context()) {
                 return Ok(allow);
             }
-            start(harness, input, session.ok().flatten())
+            start(harness, input, session.ok().flatten(), explicit)
         }
         Event::PromptSubmit => {
             if let Some(s) = session? {
@@ -106,9 +112,14 @@ fn context() -> Answer {
 }
 
 /// The entry block for a session start: `view` of the bound `session`, else
-/// a new binding from the configs found at the input's `cwd`; allow when
-/// there are none (HARN-3).
-fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<Answer> {
+/// a new binding from the explicit config, else from the configs found at
+/// the input's `cwd`; allow when there are none (HARN-3).
+fn start(
+    harness: &str,
+    input: &HookInput,
+    session: Option<Session>,
+    explicit: Option<&Path>,
+) -> Result<Answer> {
     // A bound session's bind is its view, recorded in its audit (ENG-11).
     if let Some(s) = &session {
         let mut rt = Runtime::bound(Some(s))?;
@@ -119,7 +130,8 @@ fn start(harness: &str, input: &HookInput, session: Option<Session>) -> Result<A
         Some(c) => PathBuf::from(c),
         None => paths::cwd()?,
     };
-    let files = paths::lookup(None, &cwd)?;
+    // sokf-implements: CLI-4_AC-1
+    let files = paths::lookup(explicit, &cwd)?;
     if files.is_empty() {
         return Ok(Answer::Allow { stderr: None });
     }
@@ -152,7 +164,7 @@ pub fn degrade(h: &dyn Harness, event: Event, answer: Answer) -> Answer {
 /// `smllm harness hook <HARNESS> <EVENT>`: failures exit 1 with stderr only.
 // sokf-implements: HARN-3_AC-1
 // sokf-implements: PLUG-1_AC-1
-pub fn hook(args: &HookArgs) -> Result<u8> {
+pub fn hook(args: &HookArgs, explicit: Option<&Path>) -> Result<u8> {
     // A failed hook exits 1, stderr only (HARN-3).
     let Some(h) = harness::find(&args.name) else {
         eprintln!("error: no harness named {}", args.name);
@@ -169,7 +181,7 @@ pub fn hook(args: &HookArgs) -> Result<u8> {
     let _ = std::io::stdin().read_to_string(&mut stdin);
     // Input that does not parse is empty: no field is required (HARN-3).
     let input = HookInput::parse(h.as_ref(), event, &stdin).unwrap_or_default();
-    let result = answer(h.as_ref(), event, &input).map(|a| degrade(h.as_ref(), event, a));
+    let result = answer(h.as_ref(), event, &input, explicit).map(|a| degrade(h.as_ref(), event, a));
     emit(
         h.as_ref(),
         event,

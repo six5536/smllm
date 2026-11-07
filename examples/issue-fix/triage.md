@@ -1,0 +1,1 @@
+Decide whether the issue is real: reproduce it, or find the code that causes it. If it is real and GitHub has an issue for it, fire accept. If GitHub has no issue for it yet, create one and fire issueCreated with its id.

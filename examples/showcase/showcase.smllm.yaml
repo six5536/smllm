@@ -1,6 +1,6 @@
-# Every feature smllm's format accepts, in one small graph: the superdev
-# showcase, converted. A draft is written, checked, reviewed, and either
-# approved or sent back. Everything else is mechanism, not workflow advice.
+# Every feature that smllm's format accepts, in one small graph (README.md).
+# A draft is written, checked, reviewed, and either approved or sent back.
+# The rest of the file shows the format, not a workflow to copy.
 #
 # The file is an XState v5 machine config (a strict subset); smllm's own data
 # lives under `meta`. Stately's editor can open it.

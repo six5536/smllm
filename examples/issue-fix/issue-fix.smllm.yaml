@@ -1,0 +1,96 @@
+# Fix a GitHub issue from triage to a merged pull request (README.md). The
+# agent decides whether the issue is real, fixes it on a branch of its own,
+# and opens a pull request after the tests pass; a review merges it or sends
+# it back. Three failed attempts stop the work and ask the user.
+id: issue-fix
+description: Fix a GitHub issue, from triage to a merged pull request.
+initial: TRIAGE
+meta:
+  smllm: 1
+  instance:
+    kind: issue
+    ref:
+      param: issueId
+      description: "The GitHub issue's id, such as GH-123."
+      pattern: "^GH-\\d+$"
+  events:
+    issueCreated:
+      description: Select after you create the GitHub issue.
+    accept:
+      description: Select when the GitHub issue exists and describes a real problem.
+    submit:
+      description: Select when the fix and its test are written.
+      params:
+        type: object
+        properties:
+          summary: { type: string, description: "The commit message: one line that says what the fix does." }
+        required: [summary]
+    approve:
+      description: Select when the pull request passes every item of the review.
+    reject:
+      description: Select when the pull request needs changes.
+      params:
+        type: object
+        properties:
+          reason: { type: string, description: "What is missing." }
+          severity: { type: string, enum: [minor, major], description: "How much rework." }
+        required: [reason]
+    resolved:
+      description: Select after the user says how to go on.
+  sharedActions:
+    - states: [WORK, REVIEW]
+      position: before
+      entry: { type: prompt, params: { text: "Work on one issue at a time." } }
+
+states:
+  TRIAGE:
+    description: Decide whether the issue is real.
+    meta: { entryPoint: true }
+    entry: { type: prompt, params: { file: triage.md } }
+    on:
+      issueCreated: { target: WORK, actions: setRef }
+      accept: CHECK
+  # Eventless: the machine checks that the issue exists, and the agent never
+  # rests here.
+  CHECK:
+    always:
+      - guard: { type: command, params: { run: 'gh issue view "$SMLLM_REF"' } }
+        target: WORK
+      - target: TRIAGE
+        actions: { type: prompt, params: { text: "GitHub has no such issue. Create it, then fire issueCreated." } }
+  WORK:
+    entry:
+      - { type: command, params: { run: 'git switch "issue/$SMLLM_REF" 2>/dev/null || git switch -c "issue/$SMLLM_REF"' } }
+      - { type: prompt, params: { file: work.md } }
+    on:
+      submit:
+        # The tests must pass before the change leaves the machine.
+        - guard: { type: command, params: { run: "cargo test --quiet", timeoutSecs: 300 } }
+          target: REVIEW
+          actions:
+            - { type: command, params: { run: 'git commit -am "$SMLLM_PARAM_SUMMARY"' } }
+            - { type: command, params: { run: 'git push -u origin "issue/$SMLLM_REF"' } }
+            - { type: command, params: { run: 'gh pr create --fill --body "Fixes #${SMLLM_REF#GH-}."' } }
+        - guard: { type: visits, params: { state: WORK, atLeast: 3 } }
+          target: ESCALATE
+        - target: WORK
+          reenter: true
+          description: The tests failed; fix them and submit again.
+  REVIEW:
+    meta:
+      entryPoint: true
+      paramDescriptions: { reject: { reason: "Which item of the review failed." } }
+    entry: { type: prompt, params: { file: review.md } }
+    on:
+      approve:
+        target: DONE
+        actions: { type: command, params: { run: "gh pr merge --auto --squash" } }
+      reject:
+        target: WORK
+        description: Select when an item of the review fails.
+  ESCALATE:
+    entry: { type: prompt, params: { text: "Three attempts failed. Tell the user what failed and ask how to go on, then fire yield." } }
+    on: { resolved: WORK }
+  DONE:
+    type: final
+    entry: { type: prompt, params: { text: "Tell the user the pull request is set to merge after its checks pass." } }

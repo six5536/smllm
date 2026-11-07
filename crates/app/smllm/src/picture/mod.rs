@@ -8,6 +8,8 @@ mod open;
 mod page;
 mod png;
 mod route;
+mod shared;
+mod side;
 mod svg;
 mod walk;
 

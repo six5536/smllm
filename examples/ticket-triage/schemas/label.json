@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": { "enum": ["billing", "bug", "account", "feature-request"] },
+    "evidence": { "type": "string" }
+  },
+  "required": ["name", "evidence"],
+  "additionalProperties": false
+}

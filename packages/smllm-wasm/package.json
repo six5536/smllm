@@ -1,6 +1,6 @@
 {
   "name": "@six5536/smllm-wasm",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "smllm's engine as WebAssembly: run smllm state machines that drive an LLM agent, in a browser or Node.",
   "homepage": "https://github.com/six5536/smllm#readme",
   "repository": {

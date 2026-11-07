@@ -11,5 +11,5 @@ mod turn;
 pub use answer::Answer;
 pub use api::{Bind, Engine, Error, Location, Reply, Stop};
 pub use driven::HostView;
-pub use offer::{BUILTINS, Offer, ParamValue, ParamView};
+pub use offer::{BUILTINS, BuiltinsAt, Offer, ParamValue, ParamView, builtin_offers};
 pub use status::{InstanceStatus, SessionStatus};

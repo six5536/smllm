@@ -178,26 +178,25 @@ serve it, and none of them changes anything:
   JavaScript values ready for `fire`, or `{ ok: false, error }`, whose error the host sends back
   to the model as it stands. Every malformed answer gets the same error.
 
-This loop runs a machine from start to end. The machine is an extractor builder for bank
-statements, which is in the `examples/extractor` folder of the smllm repository. The model
-answers with an extractor, a JSON value with a schema, or asks for more pages. The host checks
-the extractor and fires `checks_passed` or `checks_failed`, and the machine gives up after five
-attempts:
+This loop runs a machine from start to end. The machine triages support tickets, and is in the
+`examples/ticket-triage` folder of the smllm repository. The model answers with a triage, a JSON
+value with a schema, or asks for the customer's earlier tickets. The host checks the triage and
+fires `checks_passed` or `checks_failed`, and the machine gives up after five attempts:
 
 ```js
 const engine = new Engine(compiled, {}, memoryStorage());
 // A keyless `enter` creates the session and starts the machine in one call.
-const { session } = engine.fire(undefined, "enter", { stateMachine: "extractor-build" });
+const { session } = engine.fire(undefined, "enter", { stateMachine: "ticket-triage" });
 for (;;) {
   const view = engine.hostView(session);
   if (view.location.machine === null) break; // a final state: the session is idle again
   if (view.model.length > 0) {
-    let prompt = `${engine.stateText(session)}\n${statement}`;
+    let prompt = `${engine.stateText(session)}\n${ticket}`;
     for (;;) {
       const answer = engine.checkAnswer(session, await askModel(prompt)); // your adapter
       if (answer.ok) {
         engine.fire(session, answer.event, answer.params); // the model chose the event
-        if (answer.event === "extractor") extractor = answer.params.json;
+        if (answer.event === "triage") triage = answer.params.json;
         break;
       }
       prompt = answer.error; // the refusal, as it stands; count it as an attempt
@@ -216,7 +215,7 @@ for (;;) {
 ```js
 const work = {
   async runChecks(session) {
-    const errors = await runChecks(extractor); // your checks, which can be async
+    const errors = await runChecks(triage, ticket); // your checks, which can be async
     if (errors.length === 0) engine.fireAsHost(session, "checks_passed");
     else engine.fireAsHost(session, "checks_failed", { errors: errors.join("\n") });
   },
@@ -232,7 +231,7 @@ One machine can mix the model's steps, the host's deterministic steps, and a per
 state that offers the model events is a step of the model. A state whose events are all the
 host's is a step of the host, such as `CHECKING`, or a person's step, such as an approval for
 which the host fires the person's decision. A state that offers both lists is a step of the model
-that the host can interrupt: the extractor builder's `READ` offers the host `timed_out`, which the
+that the host can interrupt: the ticket triage's `READ` offers the host `timed_out`, which the
 host fires when the model takes too long.
 
 ## Run in Node

@@ -29,3 +29,7 @@
 
 # sokf's validation cache
 /.sokf/cache/
+
+# The failing cases that proptest saves in folders beside the tests. A case
+# worth keeping becomes a test of its own.
+proptest-regressions/

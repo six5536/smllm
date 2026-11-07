@@ -62,20 +62,20 @@
 //! # impl Clock for H { fn now_ms(&self)->u64{0} }
 //! # impl Ids for H { fn random(&mut self)->u64{42} }
 //! # let (mut g, mut a, mut i, h) = (H, H, H, H);
-//! # // `build`: in WRITE the model answers with `extractor`, a JSON param;
+//! # // `build`: in WRITE the model answers with `triage`, a JSON param;
 //! # // in CHECKING only the host fires `checks_passed` or `checks_failed`.
 //! # let mut events = SmallMap::new();
-//! # events.insert("extractor", EventDef { description: Some("Answer with the extractor.".into()), params: vec![ParamSpec { name: "json".into(), required: true, kind: ParamKind::Json, ..Default::default() }], host_only: false });
+//! # events.insert("triage", EventDef { description: Some("Answer with the triage.".into()), params: vec![ParamSpec { name: "json".into(), required: true, kind: ParamKind::Json, ..Default::default() }], host_only: false });
 //! # events.insert("checks_passed", EventDef { host_only: true, ..Default::default() });
 //! # events.insert("checks_failed", EventDef { host_only: true, ..Default::default() });
 //! # let to = |t: &str| vec![Transition { target: Some(t.into()), ..Default::default() }];
 //! # let on = |e: &str, t: &str| On { event: e.into(), transitions: to(t) };
-//! # let write = State { name: "WRITE".into(), entry: vec![ActionDef::Prompt(Prompt::Text("Write an extractor.".into()))], on: vec![on("extractor", "CHECKING")], ..Default::default() };
+//! # let write = State { name: "WRITE".into(), entry: vec![ActionDef::Prompt(Prompt::Text("Write the triage.".into()))], on: vec![on("triage", "CHECKING")], ..Default::default() };
 //! # let checking = State { name: "CHECKING".into(), on: vec![on("checks_passed", "DONE"), on("checks_failed", "WRITE")], ..Default::default() };
 //! # let done = State { name: "DONE".into(), is_final: true, ..Default::default() };
 //! # let machine = Machine { id: "build".into(), description: None, initial: "WRITE".into(), instance: InstanceSpec::default(), events, shared: vec![], states: vec![write, checking, done] };
 //! # let config = Config { machines: vec![machine], idle: vec![] };
-//! # let mut answers = ["Here it is: {}", r#"{"event": "extractor", "params": {"json": {"rules": []}}}"#].into_iter();
+//! # let mut answers = ["Here it is: {}", r#"{"event": "triage", "params": {"json": {"priority": "low", "labels": []}}}"#].into_iter();
 //! # let mut ask_model = |_prompt: &str| answers.next().unwrap().to_string();
 //! # let run_checks = |_json: &str| true;
 //! let mut store = MemoryStore::default();
@@ -84,7 +84,7 @@
 //! let none = Bind { harness: "none", ..Bind::default() };
 //! let start = [("stateMachine".to_string(), ParamValue::from("build"))];
 //! let key = engine.fire(&mut host, None, "enter", &start, &none)?.session;
-//! let mut extractor = String::new();
+//! let mut triage = String::new();
 //! loop {
 //!     let view = engine.host_view(&mut host, &key)?;
 //!     if view.location.machine.is_none() {
@@ -96,7 +96,7 @@
 //!             match engine.check_answer(&mut host, &key, &ask_model(&prompt))? {
 //!                 Ok(answer) => {
 //!                     if let Some((_, ParamValue::Json(json))) = answer.params.first() {
-//!                         extractor = json.clone();
+//!                         triage = json.clone();
 //!                     }
 //!                     engine.fire(&mut host, Some(&key), &answer.event, &answer.params, &none)?;
 //!                     break;
@@ -106,11 +106,11 @@
 //!             }
 //!         }
 //!     } else {
-//!         let event = if run_checks(&extractor) { "checks_passed" } else { "checks_failed" };
+//!         let event = if run_checks(&triage) { "checks_passed" } else { "checks_failed" };
 //!         engine.fire_as_host(&mut host, Some(&key), event, &[], &none)?;
 //!     }
 //! }
-//! assert_eq!(extractor, r#"{"rules":[]}"#);
+//! assert_eq!(triage, r#"{"priority":"low","labels":[]}"#);
 //! # Ok::<(), smllm_core::Error>(())
 //! ```
 
@@ -133,8 +133,8 @@ mod tool;
 mod utils;
 
 pub use engine::{
-    Answer, BUILTINS, Bind, Engine, Error, HostView, InstanceStatus, Location, Offer, ParamValue,
-    ParamView, Reply, SessionStatus, Stop,
+    Answer, BUILTINS, Bind, BuiltinsAt, Engine, Error, HostView, InstanceStatus, Location, Offer,
+    ParamValue, ParamView, Reply, SessionStatus, Stop, builtin_offers,
 };
 pub use render::{AGENT_RULES, format_utc};
 pub use tool::{TOOL_INPUT_SCHEMA, TOOL_NAME, tool_description};

@@ -6,11 +6,10 @@ use std::fmt::Write as _;
 
 use smllm_core::model::Machine;
 
-use crate::picture::font;
 use crate::picture::layout::{
-    self, EdgeSpec, LABEL_SIZE, LINE, NAME_SIZE, Spec, StateSpec, TAG_SIZE,
+    self, EdgeSpec, LABEL_SIZE, LINE, MARGIN, NAME_SIZE, Spec, StateSpec, TAG_SIZE,
 };
-use crate::picture::walk;
+use crate::picture::{font, shared, walk};
 
 /// The longest line of a label, in characters; a longer guard ends in `…`.
 const LABEL_CHARS: usize = 44;
@@ -318,11 +317,119 @@ pub(crate) fn draw(m: &Machine, mi: usize, mode: Text) -> Drawing {
         }
         out.push_str("</g>");
     }
+    let (w, h) = note(&mut out, m, mi, mode, (l.width, MARGIN));
     Drawing {
         body: out,
-        width: l.width,
-        height: l.height,
+        width: if w > 0.0 {
+            l.width + w + MARGIN
+        } else {
+            l.width
+        },
+        height: l.height.max(h + 2.0 * MARGIN),
     }
+}
+
+/// The kind of a line of the note.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// A heading, which starts a part of the note.
+    Heading,
+    /// The events under a heading.
+    Events,
+    /// A line that starts a part of the note without a heading.
+    Aside,
+}
+
+/// The lines of the note of `m`: the events that every state but a final
+/// one offers, and the fallback state's `resume`, then a line that says that
+/// its `unmatched` returns to idle. Empty when every state is final.
+fn note_lines(m: &Machine) -> Vec<(String, Part)> {
+    let e = shared::events(m);
+    let name = |s: &shared::Shared| {
+        if s.host_only {
+            format!("{} (host)", s.offer.name)
+        } else {
+            s.offer.name.clone()
+        }
+    };
+    let mut lines = Vec::new();
+    if let [a, b, c] = e.every.as_slice() {
+        let every = format!("{}, {}, and {}", name(a), name(b), name(c));
+        lines.push((
+            "Every state but a final one offers".to_string(),
+            Part::Heading,
+        ));
+        lines.push((every, Part::Events));
+    }
+    if let Some(f) = &e.fallback {
+        let state = cut(&f.state, LABEL_CHARS);
+        lines.push((format!("After a detour, {state} offers"), Part::Heading));
+        lines.push((name(&f.resume), Part::Events));
+        lines.push((
+            format!("In {state}, {} returns to idle", name(&f.unmatched)),
+            Part::Aside,
+        ));
+    }
+    lines
+}
+
+// sokf-implements: CLI-8_AC-12
+/// Draw the note of machine `mi`, `m`, with its top left at `at`, keyed
+/// `m{mi}-n0` for a page to select, and return its width and its height.
+fn note(out: &mut String, m: &Machine, mi: usize, mode: Text, at: (f64, f64)) -> (f64, f64) {
+    const PAD: f64 = 8.0;
+    const SECTION: f64 = 6.0;
+    let lines = note_lines(m);
+    if lines.is_empty() {
+        return (0.0, 0.0);
+    }
+    let w = lines
+        .iter()
+        .map(|(l, _)| font::width(l, LABEL_SIZE))
+        .fold(0.0, f64::max)
+        + 2.0 * PAD;
+    // Each part but the first starts a little apart from the one before.
+    let mut ys = Vec::with_capacity(lines.len());
+    let mut y = at.1 + PAD;
+    for (i, (_, part)) in lines.iter().enumerate() {
+        if i > 0 && *part != Part::Events {
+            y += SECTION;
+        }
+        ys.push(y);
+        y += LINE;
+    }
+    let h = y + PAD - at.1;
+    if mode == Text::Live {
+        let mut words = String::new();
+        for (line, part) in &lines {
+            words.push_str(line);
+            words.push_str(if *part == Part::Heading { ": " } else { ". " });
+        }
+        let _ = write!(
+            out,
+            r#"<g class="note" data-key="m{mi}-n0" tabindex="0" role="button" aria-label="{}">"#,
+            esc(words.trim_end())
+        );
+    } else {
+        out.push_str("<g>");
+    }
+    let _ = write!(
+        out,
+        r##"<rect class="box" x="{:.1}" y="{:.1}" width="{w:.1}" height="{h:.1}" rx="6" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>"##,
+        at.0, at.1
+    );
+    for ((line, part), y) in lines.iter().zip(ys) {
+        let y = y + 11.5;
+        let heading = *part == Part::Heading;
+        let st = Style {
+            bold: heading,
+            muted: heading,
+            ..Style::of(LABEL_SIZE)
+        };
+        text(out, mode, line, (at.0 + PAD, y), st);
+    }
+    out.push_str("</g>");
+    (w, h)
 }
 
 /// An SVG document of `d`, sized to it.
@@ -440,6 +547,48 @@ mod tests {
                 .contains(r##"fill="#ddf4ff" stroke="#0969da""##)
         );
         assert!(live.contains(r##"fill="#bc4c00">[visits A ≥ 2]"##));
+    }
+
+    // sokf-tests: CLI-8_AC-12
+    #[test]
+    fn the_page_and_the_png_note_the_shared_events_once() {
+        let m = machine();
+        let live = draw(&m, 0, Text::Live).body;
+        for shown in [
+            r#"data-key="m0-n0""#,
+            ">Every state but a final one offers</text>",
+            ">yield, pause, and unmatched</text>",
+            ">After a detour, B offers</text>",
+            ">resume</text>",
+            ">In B, unmatched returns to idle</text>",
+        ] {
+            assert_eq!(live.matches(shown).count(), 1, "{shown}");
+        }
+        assert!(titled(&m).body.contains(r##"stroke="#d0d7de""##));
+        // Without a fallback, no resume, and without a state to leave, no
+        // note.
+        let plain = Machine {
+            states: m
+                .states
+                .iter()
+                .map(|s| State {
+                    fallback: false,
+                    ..s.clone()
+                })
+                .collect(),
+            ..machine()
+        };
+        let live = draw(&plain, 0, Text::Live).body;
+        assert!(live.contains("unmatched") && !live.contains("resume"));
+        let done = Machine {
+            states: vec![State {
+                is_final: true,
+                ..m.states[0].clone()
+            }],
+            ..machine()
+        };
+        let d = draw(&done, 0, Text::Live);
+        assert!(!d.body.contains("m0-n0"));
     }
 
     #[test]

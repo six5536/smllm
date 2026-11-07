@@ -170,7 +170,7 @@ crates/app/smllm              the CLI: commands, file store, command runner, hoo
 packages/smllm*               npm launcher + prebuilt-binary packages
 plugin/                       the Claude Code plugin (marketplace in .claude-plugin/)
 docs/                         user documentation: tutorials, how-to guides, reference, explanations
-examples/                     showcase + dev state machines
+examples/                     example state machines, each with a README
 ```
 
 ## Development

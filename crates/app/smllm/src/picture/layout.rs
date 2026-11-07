@@ -1,13 +1,15 @@
 //! A layered layout of a flat machine: states in rows from the initial state
-//! down, each edge label in a row between two rows of states, and each long
-//! or backward edge routed through placeholders so that it passes between
-//! the boxes (CLI-8).
+//! down, each edge label in a row between two rows of states, each long or
+//! backward edge routed through placeholders so that it passes between the
+//! boxes, and each edge between two states of one row a straight line in the
+//! gap between them (CLI-8).
 //!
 //! The layout follows the usual four steps of a layered drawing: rank the
 //! states by their distance from the initial state, split every edge into
 //! steps of one row, order each row to cut crossings, and place each row
 //! from the positions of its neighbours.
 
+use crate::picture::side::{self, Side};
 use crate::picture::{font, route};
 
 /// The font size of a state's name.
@@ -101,9 +103,12 @@ pub(crate) enum Kind {
     State(usize),
     Label(usize),
     Dummy,
+    /// The gap between two states of one row that edges join.
+    Gap,
 }
 
-/// A node of a row: a state, the start dot, a label, or a placeholder.
+/// A node of a row: a state, the start dot, a label, a placeholder, or a
+/// gap.
 pub(crate) struct Node {
     pub kind: Kind,
     pub row: usize,
@@ -157,8 +162,19 @@ fn row_of(rank: usize) -> usize {
 }
 
 /// Lay out `spec`.
+// sokf-implements: CLI-8_AC-15
 pub(crate) fn layout(spec: &Spec) -> Layout {
     let rank = ranks(spec);
+    // The pairs of states of one row that sit side by side, and the lines of
+    // each pair's edges in the gap between them.
+    let pairs = side::pairs(spec, &rank);
+    let stacks: Vec<side::Stack> = pairs
+        .iter()
+        .map(|p| {
+            let edges: Vec<&EdgeSpec> = p.edges.iter().map(|&k| &spec.edges[k]).collect();
+            side::stack(&edges)
+        })
+        .collect();
     let mut nodes: Vec<Node> = Vec::new();
     fn add(nodes: &mut Vec<Node>, kind: Kind, row: usize, left: f64, right: f64, h: f64) -> usize {
         nodes.push(Node {
@@ -183,7 +199,15 @@ pub(crate) fn layout(spec: &Spec) -> Layout {
             .iter()
             .filter(|e| e.from == i && e.to.is_none())
             .collect();
+        let mut lines = Vec::new();
+        for (p, st) in pairs.iter().zip(&stacks) {
+            if p.a == i || p.b == i {
+                lines.extend(st.lines.iter().map(|l| l.0));
+            }
+        }
         let (w, h) = box_size(s, &loops);
+        let loops_h: f64 = loops.iter().map(|e| label_size(&e.lines).1 + 6.0).sum();
+        let h = h.max(side::least_height(&lines, loops_h));
         let loop_w = loops
             .iter()
             .map(|e| label_size(&e.lines).0)
@@ -202,7 +226,39 @@ pub(crate) fn layout(spec: &Spec) -> Layout {
             h,
         );
     }
-    // Each edge as a path of nodes, one row at a time.
+    // A gap node between the states of each pair, and the blocks of nodes
+    // that each row keeps together.
+    let mut sides: Vec<Option<Side>> = vec![None; spec.edges.len()];
+    let mut gap_of = std::collections::HashMap::new();
+    for (p, st) in pairs.iter().zip(&stacks) {
+        let half = st.width / 2.0;
+        let g = add(
+            &mut nodes,
+            Kind::Gap,
+            row_of(rank[p.a]),
+            half,
+            half,
+            st.height,
+        );
+        gap_of.insert((p.a, p.b), g);
+        for (&k, &(line, label)) in p.edges.iter().zip(&st.lines) {
+            sides[k] = Some(Side {
+                gap: g,
+                line,
+                label,
+            });
+        }
+    }
+    let mut blocks: Vec<Vec<usize>> = Vec::new();
+    for chain in side::chains(spec.states.len(), &pairs) {
+        let mut block = vec![state_node[chain[0]]];
+        for w in chain.windows(2) {
+            block.push(gap_of[&(w[0].min(w[1]), w[0].max(w[1]))]);
+            block.push(state_node[w[1]]);
+        }
+        blocks.push(block);
+    }
+    // Each other edge as a path of nodes, one row at a time.
     let mut paths: Vec<Vec<usize>> = Vec::new();
     let first = row_of(rank[spec.initial]) - 1;
     let d = add(&mut nodes, Kind::Dummy, first, 0.0, 0.0, 0.0);
@@ -210,6 +266,9 @@ pub(crate) fn layout(spec: &Spec) -> Layout {
     let mut edge_path = vec![None; spec.edges.len()];
     for (k, e) in spec.edges.iter().enumerate() {
         let Some(to) = e.to else { continue };
+        if sides[k].is_some() {
+            continue;
+        }
         let (ru, rv) = (row_of(rank[e.from]), row_of(rank[to]));
         let (lw, lh) = label_size(&e.lines);
         let mut path = vec![state_node[e.from]];
@@ -249,9 +308,26 @@ pub(crate) fn layout(spec: &Spec) -> Layout {
             });
         }
     }
-    order(&mut rows, &nodes, &segs);
+    // The block of each node, after every node exists.
+    let mut block_of = vec![None; nodes.len()];
+    for (b, block) in blocks.iter().enumerate() {
+        for &v in block {
+            block_of[v] = Some(b);
+        }
+    }
+    let blocks = Blocks {
+        blocks: &blocks,
+        block_of: &block_of,
+    };
+    order(&mut rows, &nodes, &segs, &blocks);
     place(&rows, &mut nodes, &segs);
-    route::geometry(spec, &nodes, n_rows, &state_node, &paths, &edge_path)
+    let parts = route::Parts {
+        state_node: &state_node,
+        paths: &paths,
+        edge_path: &edge_path,
+        sides: &sides,
+    };
+    route::geometry(spec, &nodes, n_rows, &parts)
 }
 
 fn box_size(s: &StateSpec, loops: &[&EdgeSpec]) -> (f64, f64) {
@@ -277,10 +353,28 @@ fn crossings(pos: &[usize], segs: &[(usize, usize)]) -> usize {
     n
 }
 
+/// The blocks of nodes that a row keeps together: each chain of states of
+/// one row with the gaps between them.
+struct Blocks<'b> {
+    blocks: &'b [Vec<usize>],
+    block_of: &'b [Option<usize>],
+}
+
 /// Order each row by the mean position of its neighbours, sweeping down and
-/// up, and keep the order with the fewest crossings.
-fn order(rows: &mut [Vec<usize>], nodes: &[Node], segs: &[(usize, usize)]) {
+/// up, keeping each block together, and keep the order with the fewest
+/// crossings.
+fn order(rows: &mut [Vec<usize>], nodes: &[Node], segs: &[(usize, usize)], blocks: &Blocks) {
     let n = nodes.len();
+    let keyed = |v: usize| nodes[v].kind != Kind::Gap;
+    let arrange = |row: &[usize], key: &dyn Fn(usize) -> f64| {
+        side::arrange(row, key, keyed, blocks.blocks, blocks.block_of)
+    };
+    // Each block together from the start, in the order of its chain.
+    for r in rows.iter_mut() {
+        let first = r.clone();
+        let key = |v: usize| first.iter().position(|&u| u == v).unwrap_or(0) as f64;
+        *r = arrange(&first, &key);
+    }
     let positions = |rows: &[Vec<usize>]| {
         let mut pos = vec![0; n];
         for r in rows {
@@ -331,10 +425,7 @@ fn order(rows: &mut [Vec<usize>], nodes: &[Node], segs: &[(usize, usize)]) {
                     ns.iter().map(|&u| pos[u] as f64).sum::<f64>() / ns.len() as f64
                 }
             };
-            let mut keyed: Vec<(f64, usize, usize)> =
-                rows[r].iter().map(|&v| (key(v), pos[v], v)).collect();
-            keyed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-            rows[r] = keyed.into_iter().map(|(_, _, v)| v).collect();
+            rows[r] = arrange(&rows[r], &key);
         }
         let c = count(&positions(rows));
         if c < best_n {
@@ -407,6 +498,15 @@ fn place(rows: &[Vec<usize>], nodes: &mut [Node], segs: &[(usize, usize)]) {
             }
             for i in 0..n {
                 nodes[row[i]].x = (left[i] + right[i]) / 2.0;
+            }
+        }
+    }
+    // Each gap in the middle of the space between its two states.
+    for r in rows {
+        for i in 1..r.len().saturating_sub(1) {
+            if nodes[r[i]].kind == Kind::Gap {
+                let (a, b) = (&nodes[r[i - 1]], &nodes[r[i + 1]]);
+                nodes[r[i]].x = (a.x + a.right + b.x - b.left) / 2.0;
             }
         }
     }
@@ -489,15 +589,82 @@ mod tests {
         assert!(l.routes.iter().all(|r| r.d.starts_with('M')));
     }
 
+    /// The points of an SVG path of `M`, `L`, and `Q` commands.
+    fn points(d: &str) -> Vec<Pt> {
+        let n: Vec<f64> = d
+            .split(['M', 'L', 'Q', ' '])
+            .filter_map(|v| v.parse().ok())
+            .collect();
+        n.chunks(2).map(|p| (p[0], p[1])).collect()
+    }
+
+    // sokf-tests: CLI-8_AC-14
+    // sokf-tests: CLI-8_AC-15
     #[test]
-    fn a_same_row_edge_dips_into_the_label_row() {
+    fn a_same_row_edge_crosses_the_gap_with_its_label_above_it() {
         let s = spec(
-            &["A", "B", "C"],
-            &[(0, Some(1), "x"), (0, Some(2), "y"), (1, Some(2), "side")],
+            &["A", "B", "C", "D"],
+            &[
+                (0, Some(1), "x"),
+                (0, Some(2), "y"),
+                (0, Some(3), "z"),
+                (1, Some(2), "side"),
+                (2, Some(1), "back"),
+                (2, Some(3), "on"),
+            ],
         );
         let l = layout(&s);
-        assert_eq!(l.boxes[1].y, l.boxes[2].y);
-        assert!(l.routes[2].label.1 > l.boxes[1].y + l.boxes[1].h);
+        let b = &l.boxes;
+        let mid = |r: &Rect| r.y + r.h / 2.0;
+        assert!(mid(&b[1]) == mid(&b[2]) && mid(&b[2]) == mid(&b[3]));
+        for (k, (from, to)) in [(3, (1, 2)), (4, (2, 1)), (5, (2, 3))] {
+            let r = &l.routes[k];
+            let p = points(&r.d);
+            assert_eq!(p.len(), 2, "{k}: one straight line, {}", r.d);
+            let (a, z) = (p[0], p[1]);
+            assert_eq!(a.1, z.1, "{k}: a level line");
+            let (bf, bt) = (b[from], b[to]);
+            // From the side of one box to the facing side of the other.
+            let (left, right) = if bf.x < bt.x { (bf, bt) } else { (bt, bf) };
+            assert_eq!(a.0.min(z.0), left.x + left.w, "{k}");
+            assert_eq!(a.0.max(z.0), right.x, "{k}");
+            assert_eq!(z.0 == right.x, bf.x < bt.x, "{k}: the arrow meets {to}");
+            for bx in [bf, bt] {
+                assert!(a.1 > bx.y + 6.0 && a.1 < bx.y + bx.h - 6.0, "{k}");
+            }
+            // The label sits above its line, inside the gap.
+            assert!(r.label.1 + LINE <= a.1, "{k}: {r:?}");
+            assert!(r.label.0 > left.x + left.w && r.label.0 < right.x, "{k}");
+            // The line passes no other box.
+            for (i, o) in b.iter().enumerate() {
+                if i != from && i != to {
+                    let inside = a.1 > o.y && a.1 < o.y + o.h;
+                    assert!(!(inside && o.x < right.x && o.x + o.w > left.x), "{k}");
+                }
+            }
+        }
+        // B and C, with their two edges, sit side by side.
+        let (y3, y4) = (points(&l.routes[3].d)[0].1, points(&l.routes[4].d)[0].1);
+        assert!((y3 - y4).abs() >= LINE, "{y3} {y4}");
+    }
+
+    #[test]
+    fn a_pair_that_would_close_a_ring_takes_the_label_row() {
+        let s = spec(
+            &["A", "B", "C", "D"],
+            &[
+                (0, Some(1), "x"),
+                (0, Some(2), "y"),
+                (0, Some(3), "z"),
+                (1, Some(2), "a"),
+                (2, Some(3), "b"),
+                (3, Some(1), "c"),
+            ],
+        );
+        let l = layout(&s);
+        assert_eq!(points(&l.routes[3].d).len(), 2);
+        assert_eq!(points(&l.routes[4].d).len(), 2);
+        assert!(l.routes[5].label.1 > l.boxes[1].y + l.boxes[1].h);
     }
 
     #[test]

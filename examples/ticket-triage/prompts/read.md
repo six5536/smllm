@@ -1,0 +1,1 @@
+Triage the support ticket that follows. Answer with its priority and one or more labels. Give each label the words of the ticket that support it, quoted exactly. If the ticket refers to an earlier ticket that you haven't seen, ask for the customer's history.

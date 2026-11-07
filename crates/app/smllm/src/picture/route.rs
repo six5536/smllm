@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use crate::picture::layout::{
     LABEL_GAP, LOOP_OUT, Layout, MARGIN, Node, Pt, Rect, START, Spec, label_size,
 };
+use crate::picture::side::{self, Side};
 
 /// The space between two lanes, and between a lane and a row.
 const LANE: f64 = 7.0;
@@ -83,15 +84,26 @@ struct Jog {
     lower: f64,
 }
 
+/// The parts of a layout that its routes follow.
+pub(crate) struct Parts<'p> {
+    /// The node of each state.
+    pub state_node: &'p [usize],
+    /// The nodes that each route passes, one row at a time.
+    pub paths: &'p [Vec<usize>],
+    /// The path of each edge, `None` for a loop and an edge across a gap.
+    pub edge_path: &'p [Option<usize>],
+    /// The gap that each edge between two states of one row crosses.
+    pub sides: &'p [Option<Side>],
+}
+
 /// The geometry of a layout: the boxes, the ports, the lanes, and the routes.
-pub(crate) fn geometry(
-    spec: &Spec,
-    nodes: &[Node],
-    n_rows: usize,
-    state_node: &[usize],
-    paths: &[Vec<usize>],
-    edge_path: &[Option<usize>],
-) -> Layout {
+pub(crate) fn geometry(spec: &Spec, nodes: &[Node], n_rows: usize, parts: &Parts) -> Layout {
+    let Parts {
+        state_node,
+        paths,
+        edge_path,
+        sides,
+    } = *parts;
     let heights = row_heights(nodes, n_rows);
     // Spread the ends of the edges along each side of a box, in the order of
     // the points that they come from.
@@ -265,15 +277,32 @@ pub(crate) fn geometry(
         .edges
         .iter()
         .enumerate()
-        .map(|(k, e)| match edge_path[k] {
-            Some(p) => {
+        .map(|(k, e)| match (edge_path[k], sides[k], e.to) {
+            // sokf-implements: CLI-8_AC-14
+            // A straight line from the side of one box to the facing side of
+            // the other, with its label above it in the middle of the gap.
+            (_, Some(s), Some(to)) => {
+                let (a, b) = (boxes[e.from], boxes[to]);
+                let g = &nodes[s.gap];
+                let y = ys[g.row] + s.line;
+                let (x0, x1) = if a.x < b.x {
+                    (a.x + a.w, b.x)
+                } else {
+                    (a.x, b.x + b.w)
+                };
+                crate::picture::layout::Route {
+                    d: format!("M{x0:.1} {y:.1}L{x1:.1} {y:.1}"),
+                    label: (g.x - side::text_width(&e.lines) / 2.0, ys[g.row] + s.label),
+                }
+            }
+            (Some(p), _, _) => {
                 let n = &nodes[paths[p][1]];
                 crate::picture::layout::Route {
                     d: rounded(&polyline(p)),
                     label: (n.x + LABEL_GAP, ys[n.row] - n.h / 2.0),
                 }
             }
-            None => {
+            _ => {
                 let b = boxes[e.from];
                 let (_, lh) = label_size(&e.lines);
                 let top = b.y + 3.0 + loops[e.from];

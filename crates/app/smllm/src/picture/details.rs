@@ -9,7 +9,7 @@ use smllm_core::SmallMap;
 use smllm_core::model::{ActionDef, EventDef, GuardDef, Machine, Position, Prompt, State};
 
 use crate::output;
-use crate::picture::walk;
+use crate::picture::{shared, walk};
 
 /// A param value as JSON.
 fn value(v: &smllm_core::model::Value) -> Value {
@@ -196,6 +196,45 @@ pub(crate) fn details(m: &Machine) -> Value {
         "initial": m.initial,
         "states": states,
         "transitions": transitions,
+        "shared": shared_events(m),
+    })
+}
+
+/// The events that the note of `m` lists, each with its guidance and its
+/// params: those of every state but a final one, and the fallback state's
+/// `resume` and `unmatched`.
+// sokf-implements: CLI-8_AC-13
+fn shared_events(m: &Machine) -> Value {
+    let e = shared::events(m);
+    let event = |s: &shared::Shared| {
+        let params: Vec<Value> = s
+            .offer
+            .params
+            .iter()
+            .map(|p| {
+                json!({
+                    "name": p.name,
+                    "required": p.required,
+                    "enum": p.enum_values,
+                    "pattern": p.pattern,
+                    "description": p.description,
+                })
+            })
+            .collect();
+        json!({
+            "event": s.offer.name,
+            "guidance": s.offer.description,
+            "hostOnly": s.host_only,
+            "params": params,
+        })
+    };
+    json!({
+        "every": e.every.iter().map(event).collect::<Vec<_>>(),
+        "fallback": e.fallback.as_ref().map(|f| json!({
+            "state": f.state,
+            "event": event(&f.resume),
+            "unmatched": event(&f.unmatched),
+        })),
     })
 }
 

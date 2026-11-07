@@ -62,7 +62,7 @@ fn run() -> Result<u8> {
         Command::Instance(InstanceCommand::Show(a)) => state::instance_show(&a, explicit),
         Command::Harness(HarnessCommand::Install(a)) => harness::run(&a, true, explicit),
         Command::Harness(HarnessCommand::Status(a)) => harness::run(&a, false, explicit),
-        Command::Harness(HarnessCommand::Hook(a)) => hook::hook(&a),
+        Command::Harness(HarnessCommand::Hook(a)) => hook::hook(&a, explicit),
         Command::Graph(a) => graph::graph(&a, explicit),
         Command::Info(InfoCommand::Schema) => config::schema(),
         Command::Info(InfoCommand::Rules) => config::rules(),
@@ -113,5 +113,16 @@ mod test_support {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// The number of cases of a property test: `PROPTEST_CASES` when it is
+    /// set to a number, which `ProptestConfig::with_cases` would override,
+    /// and `n` otherwise.
+    pub(crate) fn cases(n: u32) -> proptest::test_runner::Config {
+        let cases = std::env::var("PROPTEST_CASES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(n);
+        proptest::test_runner::Config::with_cases(cases)
     }
 }

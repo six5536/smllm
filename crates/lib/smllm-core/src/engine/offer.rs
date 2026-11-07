@@ -130,8 +130,6 @@ pub(crate) fn machine_offers(
     inst: &Instance,
 ) -> Vec<Offer> {
     let mut offers = Vec::new();
-    let kind = &machine.instance.kind;
-    let label = inst.label();
     if let Some(state) = state {
         if state.is_final {
             return offers;
@@ -153,25 +151,58 @@ pub(crate) fn machine_offers(
                     .collect(),
             });
         }
-        if state.fallback
-            && let Some(back) = &inst.resume_state
-        {
-            offers.push(Offer {
-                name: "resume".to_string(),
-                description: builtin_description(
-                    Some(machine),
-                    "resume",
-                    format!("Return to {back}."),
-                ),
-                params: Vec::new(),
-            });
-        }
+    }
+    let subject = format!("{} {}", machine.instance.kind, inst.label());
+    // The fallback state as the engine finds it (`unmatched` in machine.rs).
+    let in_fallback = state.is_some_and(|s| machine.fallback().is_some_and(|f| f.name == s.name));
+    offers.extend(builtin_offers(
+        machine,
+        &BuiltinsAt {
+            here: state.map(|s| s.name.as_str()),
+            in_fallback,
+            subject: &subject,
+            back: inst.resume_state.as_deref().filter(|_| in_fallback),
+        },
+    ));
+    offers
+}
+
+/// Where the built-in events of a machine state are offered, in the words
+/// that their guidance uses (AGT-2).
+#[derive(Debug, Clone, Copy)]
+pub struct BuiltinsAt<'a> {
+    /// The state, as `yield` names it, or `None` when the saved state no
+    /// longer exists, which offers no `yield`.
+    pub here: Option<&'a str>,
+    /// Whether the state is the fallback state, where `unmatched` returns to
+    /// idle.
+    pub in_fallback: bool,
+    /// The instance, as `pause` names it, such as `bug BUG-7`.
+    pub subject: &'a str,
+    /// The state that `resume` returns to, or `None`, which offers no
+    /// `resume`.
+    pub back: Option<&'a str>,
+}
+
+/// The built-in events of a machine state that isn't final, in the order
+/// that the agent sees them: `resume`, `yield`, `pause`, and `unmatched`,
+/// each with the machine's guidance or the default (AGT-2).
+pub fn builtin_offers(machine: &Machine, b: &BuiltinsAt<'_>) -> Vec<Offer> {
+    let mut offers = Vec::new();
+    if let Some(back) = b.back {
+        offers.push(Offer {
+            name: "resume".to_string(),
+            description: builtin_description(Some(machine), "resume", format!("Return to {back}.")),
+            params: Vec::new(),
+        });
+    }
+    if let Some(here) = b.here {
         offers.push(Offer {
             name: "yield".to_string(),
             description: builtin_description(
                 Some(machine),
                 "yield",
-                format!("Stop for now and stay in {}.", state.name),
+                format!("Stop for now and stay in {here}."),
             ),
             params: vec![ParamView {
                 name: "note".to_string(),
@@ -185,12 +216,12 @@ pub(crate) fn machine_offers(
         description: builtin_description(
             Some(machine),
             "pause",
-            format!("Put {kind} {label} aside and return to idle."),
+            format!("Put {} aside and return to idle.", b.subject),
         ),
         params: Vec::new(),
     });
     let detour = match machine.fallback() {
-        Some(f) if state.is_none_or(|s| s.name != f.name) => {
+        Some(f) if !b.in_fallback => {
             format!(
                 "The request fits none of these; handle it in {}, then resume.",
                 f.name

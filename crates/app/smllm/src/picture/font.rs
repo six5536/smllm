@@ -33,13 +33,18 @@ fn glyph(c: char) -> usize {
 const HYPHEN: [i8; 4] = [1, 22, 8, 22];
 const HYPHEN_WIDTH: u8 = 11;
 
+/// The advance of a comma: that of the font's full stop, because the font's
+/// own comma advances as far as its dash and leaves a wide gap after it.
+const COMMA_WIDTH: u8 = 10;
+
 /// The strokes and the advance of `c`.
 fn shape(c: char) -> (&'static [i8], u8) {
     if c == '-' {
         return (&HYPHEN, HYPHEN_WIDTH);
     }
     let g = glyph(c);
-    (SANS[g], SANS_WIDTH[g])
+    let advance = if c == ',' { COMMA_WIDTH } else { SANS_WIDTH[g] };
+    (SANS[g], advance)
 }
 
 /// The scale from font units to pixels at `size`.
@@ -108,6 +113,7 @@ mod tests {
         assert_eq!(width("→", 12.0), width("->", 12.0));
         assert_eq!(width("…", 12.0), width("...", 12.0));
         assert!(width("-", 12.0) < width("m", 12.0) / 1.5);
+        assert_eq!(width(",", 12.0), width(".", 12.0));
     }
 
     #[test]

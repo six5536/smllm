@@ -1,6 +1,6 @@
 {
   "name": "@six5536/smllm-linux-arm64",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Prebuilt smllm binary for linux-arm64.",
   "homepage": "https://github.com/six5536/smllm#readme",
   "repository": {

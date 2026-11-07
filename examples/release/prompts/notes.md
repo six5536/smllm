@@ -1,0 +1,1 @@
+Add a section for the version to CHANGELOG.md, under the heading `## VERSION`, where VERSION is the version in the header. List each change that a user sees since the last release, one line each. Then fire noted.

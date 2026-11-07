@@ -60,11 +60,13 @@ pub fn explicit(flag: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Configs to load: `--config`/`SMLLM_CONFIG` alone, else the user config
-/// then the nearest project config (D26). Empty when none exists (HARN-3).
+/// then the nearest project config at or above `from` (D26). Empty when none
+/// exists (HARN-3). A relative explicit config names a file in the working
+/// directory of the process, whatever `from` is.
 // sokf-implements: CLI-4_AC-1
 pub fn lookup(explicit: Option<&Path>, from: &Path) -> Result<Vec<ConfigFile>> {
     if let Some(p) = self::explicit(explicit) {
-        let p = if p.is_relative() { from.join(p) } else { p };
+        let p = if p.is_relative() { cwd()?.join(p) } else { p };
         if !p.is_file() {
             return Err(Error::msg(format!(
                 "config {} does not exist",

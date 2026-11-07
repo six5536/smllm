@@ -7,9 +7,14 @@ name: Publish
 # crates.io and the packages to npm, and creates the GitHub release. The
 # internal repository ran the tests before the export, so this workflow runs
 # none.
+#
+# The push of the main branch, which comes with each release, runs only the
+# builds, to save the caches that the next release's builds restore: a tag
+# reads only its own caches and the main branch's.
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 env:
@@ -19,9 +24,11 @@ permissions:
   contents: read
 
 # Two releases never run at once, and a release in progress is never
-# cancelled, because a publish that stops halfway is the worst outcome.
+# cancelled, because a publish that stops halfway is the worst outcome. The
+# builds of the main branch have a group of their own, so a release never
+# waits for them.
 concurrency:
-  group: publish
+  group: publish-${{ github.ref_type }}
   cancel-in-progress: false
 
 jobs:
@@ -31,6 +38,7 @@ jobs:
   # ---------------------------------------------------------------------------
   meta:
     name: verify tag
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -73,6 +81,8 @@ jobs:
   build:
     name: build ${{ matrix.pkg }}
     needs: meta
+    # On the main branch, meta is skipped, and the builds run without it.
+    if: ${{ !cancelled() && (needs.meta.result == 'success' || needs.meta.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -102,7 +112,14 @@ jobs:
           rustup toolchain install --profile minimal
           rustup target add ${{ matrix.target }}
 
+      # The main branch restores and saves the cache, and a tag only restores
+      # it, because no later run can read a tag's cache. The key names the
+      # target, because the two Linux targets, and the two macOS targets, each
+      # build on the same kind of runner.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install cargo-zigbuild
         if: matrix.builder == 'zigbuild'
@@ -127,13 +144,16 @@ jobs:
 
       # setup-zig must be v2 or later. Zig 0.15 renamed its tarballs from
       # zig-<os>-<arch>-<ver> to zig-<arch>-<os>-<ver>, but v1 still builds the
-      # old URL, so every mirror returns 404.
+      # old URL, so every mirror returns 404. The action caches the zig
+      # download, which a tag restores from the main branch. Its cache of zig's
+      # builds stays off, because the action has no setting that only restores
+      # it.
       - name: Install zig
         if: matrix.builder == 'zigbuild'
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ steps.zig.outputs.version }}
-          cache-key: ${{ matrix.target }}
+          use-cache: false
 
       - name: Build (zigbuild)
         if: matrix.builder == 'zigbuild'
@@ -184,6 +204,7 @@ jobs:
         run: node scripts/launcher-smoke.mjs
 
       - uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
         with:
           name: smllm-${{ matrix.pkg }}
           path: packages/smllm-${{ matrix.pkg }}/bin/smllm*
@@ -195,6 +216,7 @@ jobs:
   publish:
     name: publish
     needs: [meta, build]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: read

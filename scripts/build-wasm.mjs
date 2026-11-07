@@ -3,7 +3,8 @@
 // rebuilt for size on a pinned nightly) → wasm-bindgen (web + bundler targets) → wasm-opt -Oz,
 // once for the module that both targets share;
 // print the .wasm size (WASM-7). Also regenerates the smoke test's compiled
-// machines from examples/dev, the host-driven test's from examples/extractor,
+// machines from examples/issue-fix, the host-driven test's from
+// examples/ticket-triage,
 // and the wasm example's (examples/wasm).
 //
 // Needs rustup (the script installs NIGHTLY with rust-src and the wasm32
@@ -14,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, statSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 // WASM-5: raised from 134 KiB to 150 KiB when JSON params left 1.7 KB of
 // headroom, and to 165 KiB when the host-driven mode and the audit left 256
@@ -53,7 +54,9 @@ run("cargo", [
 ], {
   CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f"),
 });
-const raw = join(root, "target/wasm32-unknown-unknown/wasm/smllm_wasm.wasm");
+// cargo builds into CARGO_TARGET_DIR when it is set, as the export's verify sets it.
+const targetDir = resolve(root, process.env.CARGO_TARGET_DIR ?? "target");
+const raw = join(targetDir, "wasm32-unknown-unknown/wasm/smllm_wasm.wasm");
 const targets = ["web", "bundler"];
 const moduleOf = (target) => join(pkg, "wasm", target, "smllm_wasm_bg.wasm");
 for (const target of targets) {
@@ -96,7 +99,7 @@ run(join(root, "node_modules/.bin/tsc"), ["-p", pkg]);
 // The tests stay out of the public mirror, so the mirror's build has no test
 // folder to write the smoke test's machines into.
 if (existsSync(join(pkg, "test"))) {
-  run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/dev/config.toml", "-o", "packages/smllm-wasm/test/dev.json"]);
-  run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/extractor/config.toml", "-o", "packages/smllm-wasm/test/extractor.json"]);
+  run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/issue-fix/config.toml", "-o", "packages/smllm-wasm/test/issue-fix.json"]);
+  run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/ticket-triage/config.toml", "-o", "packages/smllm-wasm/test/ticket-triage.json"]);
 }
 run("cargo", ["run", "--quiet", "--locked", "-p", "smllm", "--", "compile", "examples/wasm/config.toml", "-o", "examples/wasm/machines.json"]);

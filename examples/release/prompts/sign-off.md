@@ -1,0 +1,1 @@
+Show the user the version's section of CHANGELOG.md, and say that the format, lint, and test checks passed. Ask whether to release the version. Fire approved or declined with the user's answer, and never answer for the user.

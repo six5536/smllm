@@ -47,8 +47,8 @@ nav a[aria-current="page"] { background: var(--pick-soft); color: var(--pick); f
 #details th, #details td { text-align: left; vertical-align: top; border-top: 1px solid var(--line); padding: 2px 6px 2px 0; }
 #details th { color: var(--muted); font-weight: 600; }
 #details button.link { background: none; border: 0; padding: 0; color: var(--pick); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
-svg .state, svg .edge { cursor: pointer; outline: none; }
-svg .state:hover .box, svg .state:focus-visible .box { stroke: var(--pick); stroke-width: 2.4; }
+svg .state, svg .edge, svg .note { cursor: pointer; outline: none; }
+svg .state:hover .box, svg .state:focus-visible .box, svg .note:hover .box, svg .note:focus-visible .box { stroke: var(--pick); stroke-width: 2.4; }
 svg .edge:hover .line, svg .edge:focus-visible .line { stroke: var(--pick); stroke-width: 2.4; }
 svg .selected .box { stroke: var(--pick); stroke-width: 3; }
 svg .selected .line { stroke: var(--pick); stroke-width: 2.8; }
@@ -164,27 +164,57 @@ svg .selected text { fill: var(--pick); }
     add(panel, el("h3", null, "Exit events"));
     if (!s.events.length) add(panel, el("p", "none", "None: the state declares no transitions."));
     s.events.forEach(function (ev) {
-      var box = add(panel, el("div", "item"));
-      add(box, el("h4", null, ev.event));
-      if (ev.guidance) add(box, el("div", null, ev.guidance));
-      if (ev.params.length) {
-        var t = add(box, el("table"));
-        var h = add(t, el("tr"));
-        ["Param", "Required", "Values", "Description"].forEach(function (c) { add(h, el("th", null, c)); });
-        ev.params.forEach(function (p) {
-          var r = add(t, el("tr"));
-          add(r, el("td", null, p.name));
-          add(r, el("td", null, p.required ? "yes" : "no"));
-          add(r, el("td", null, p.enum.length ? p.enum.join(", ") : (p.pattern ? "matches " + p.pattern : "any")));
-          add(r, el("td", null, p.description || ""));
-        });
-      }
+      var box = event(panel, ev);
       ev.transitions.forEach(function (k) {
         var tr = m.transitions[k];
         var line = add(box, el("div"));
         link(line, "→ " + (tr.target || s.name + " (stays)") + (tr.guard ? " [" + tr.guard.label + "]" : ""), "m" + mi + "-t" + k);
       });
     });
+    if (s.tags.indexOf("final") < 0 && m.shared.every.length) {
+      var also = add(panel, el("p"));
+      add(also, el("span", null, "The state also offers "));
+      link(also, "the events of every state", "m" + mi + "-n0");
+      add(also, el("span", null, "."));
+    }
+  }
+
+  // An event with its guidance and its params, in a box of its own.
+  function event(parent, ev) {
+    var box = add(parent, el("div", "item"));
+    add(box, el("h4", null, ev.event + (ev.hostOnly ? " (host)" : "")));
+    if (ev.guidance) add(box, el("div", null, ev.guidance));
+    if (ev.params.length) {
+      var t = add(box, el("table"));
+      var h = add(t, el("tr"));
+      ["Param", "Required", "Values", "Description"].forEach(function (c) { add(h, el("th", null, c)); });
+      ev.params.forEach(function (p) {
+        var r = add(t, el("tr"));
+        add(r, el("td", null, p.name));
+        add(r, el("td", null, p.required ? "yes" : "no"));
+        add(r, el("td", null, p.enum.length ? p.enum.join(", ") : (p.pattern ? "matches " + p.pattern : "any")));
+        add(r, el("td", null, p.description || ""));
+      });
+    }
+    return box;
+  }
+
+  function showShared(mi, m) {
+    var sh = m.shared;
+    add(panel, el("h2", null, "Events of every state"));
+    if (sh.every.length) {
+      add(panel, el("p", null, "Every state but a final one offers these events, besides its own."));
+      sh.every.forEach(function (ev) { event(panel, ev); });
+    }
+    if (sh.fallback) {
+      add(panel, el("h3", null, "The fallback state"));
+      var p = add(panel, el("p"));
+      link(p, sh.fallback.state, "m" + mi + "-s" + stateIndex(m, sh.fallback.state));
+      add(p, el("span", null, " also offers resume during a detour."));
+      event(panel, sh.fallback.event);
+      add(panel, el("p", null, "In " + sh.fallback.state + ", unmatched returns to idle."));
+      event(panel, sh.fallback.unmatched);
+    }
   }
 
   function showTransition(mi, m, t) {
@@ -205,12 +235,14 @@ svg .selected text { fill: var(--pick); }
     if (picked) picked.classList.remove("selected");
     picked = null;
     panel.textContent = "";
-    var at = /^m(\d+)-([st])(\d+)$/.exec(key || "");
+    var at = /^m(\d+)-([stn])(\d+)$/.exec(key || "");
     if (!at) { add(panel, el("p", "hint", hint)); return; }
     var mi = +at[1], m = machines[mi], i = +at[3];
     picked = document.querySelector('[data-key="' + key + '"]');
     if (picked) picked.classList.add("selected");
-    if (at[2] === "s") showState(mi, m, m.states[i]); else showTransition(mi, m, m.transitions[i]);
+    if (at[2] === "s") showState(mi, m, m.states[i]);
+    else if (at[2] === "t") showTransition(mi, m, m.transitions[i]);
+    else showShared(mi, m);
   }
 
   // One machine at a time: the one that the URL's hash names, or the first.

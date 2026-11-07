@@ -1,40 +1,40 @@
-# A host-driven machine (examples/extractor/README.md): a model without tools
-# writes an extractor for a bank statement, the host checks it, and the
-# model tries again with the errors, up to five attempts.
-id: extractor-build
-description: Write an extractor for a bank statement that the host checks.
+# A host-driven machine (README.md): a model without tools triages a
+# support ticket, the host checks the triage, and the model tries again with
+# the errors, up to five attempts.
+id: ticket-triage
+description: Triage a support ticket, and have the host check the triage.
 initial: READ
 meta:
   smllm: 1
   instance:
-    kind: statement
+    kind: ticket
   events:
-    extractor:
-      description: Answer with an extractor for the statement.
+    triage:
+      description: Answer with the ticket's triage.
       params:
         type: object
         properties:
           json:
             type: json
-            schema: schemas/extractor.json
-            description: The extractor.
+            schema: schemas/triage.json
+            description: The triage.
         required: [json]
-    pages:
-      description: Ask for more pages of the statement.
+    history:
+      description: Ask for the customer's earlier tickets.
       params:
         type: object
         properties:
-          pages:
+          tickets:
             type: string
             pattern: "^[0-9]+(,[0-9]+)*$"
-            description: The pages to read, such as 3,4.
-        required: [pages]
+            description: The numbers of the tickets to read, such as 3,4.
+        required: [tickets]
     checks_passed:
       source: host
-      description: The extractor's items reconcile.
+      description: The triage passed the host's checks.
     checks_failed:
       source: host
-      description: The extractor's items don't reconcile.
+      description: The triage failed the host's checks.
       params:
         type: object
         properties:
@@ -48,14 +48,14 @@ states:
     meta: { entryPoint: true }
     entry: { type: prompt, params: { file: prompts/read.md } }
     on:
-      extractor: CHECKING
-      pages: READ
+      triage: CHECKING
+      history: READ
       timed_out: FAILED
   CHECKING:
-    # The host runs its checks of the extractor, and fires checks_passed or
+    # The host runs its checks of the triage, and fires checks_passed or
     # checks_failed.
     invoke: { src: runChecks }
-    entry: { type: prompt, params: { text: The host checks the extractor. } }
+    entry: { type: prompt, params: { text: The host checks the triage. } }
     on:
       checks_passed: ACCEPTED
       checks_failed:

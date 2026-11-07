@@ -1,0 +1,93 @@
+# Release a version of a Rust project (README.md). The agent writes the
+# changelog; a chain of eventless states runs the checks, and any failure
+# sends the agent to fix it, up to three times. A person signs the release
+# off before the machine tags it.
+id: release
+description: Release a version after its checks pass and a person signs it off.
+initial: NOTES
+meta:
+  smllm: 1
+  instance:
+    kind: release
+    ref:
+      param: version
+      description: "The version to release, such as 1.4.0."
+      pattern: "^\\d+\\.\\d+\\.\\d+$"
+  events:
+    noted:
+      description: Select after CHANGELOG.md has a section for the version.
+    fixed:
+      description: Select after the check that failed passes on your machine.
+    approved:
+      description: Select when the user says to release the version.
+    declined:
+      description: Select when the user says not to release the version yet.
+      params:
+        type: object
+        properties:
+          reason: { type: string, description: "What the user wants changed first." }
+        required: [reason]
+    resolved:
+      description: Select after the user says how to go on.
+
+states:
+  NOTES:
+    meta: { entryPoint: true }
+    entry: { type: prompt, params: { file: prompts/notes.md } }
+    on:
+      noted:
+        - guard: { type: command, params: { run: 'grep -q "^## $SMLLM_REF" CHANGELOG.md' } }
+          target: FORMAT
+        - target: NOTES
+          reenter: true
+          description: CHANGELOG.md has no heading for the version yet.
+
+  # The checks: eventless states, each with a command guard. The first that
+  # fails sends the agent to FIX with the reason.
+  FORMAT:
+    always:
+      - guard: { type: command, params: { run: "cargo fmt --check" } }
+        target: LINT
+      - target: FIX
+        actions: { type: prompt, params: { text: "cargo fmt --check failed." } }
+  LINT:
+    always:
+      - guard: { type: command, params: { run: "cargo clippy --all-targets -- -D warnings", timeoutSecs: 600 } }
+        target: TEST
+      - target: FIX
+        actions: { type: prompt, params: { text: "cargo clippy found warnings." } }
+  TEST:
+    always:
+      - guard: { type: command, params: { run: "cargo test --quiet", timeoutSecs: 900 } }
+        target: SIGN_OFF
+      - target: FIX
+        actions: { type: prompt, params: { text: "cargo test failed." } }
+
+  FIX:
+    entry: { type: prompt, params: { text: "Fix the check that failed, and change nothing else. Then fire fixed." } }
+    on:
+      fixed:
+        - guard: { type: visits, params: { state: FIX, atLeast: 3 } }
+          target: STUCK
+        - target: FORMAT
+  STUCK:
+    entry: { type: prompt, params: { text: "The checks failed three times. Tell the user what failed and ask how to go on, then fire yield." } }
+    on: { resolved: FORMAT }
+
+  # A person decides: the agent asks, and fires the user's answer.
+  SIGN_OFF:
+    entry: { type: prompt, params: { file: prompts/sign-off.md } }
+    on:
+      approved: PUBLISH
+      declined: NOTES
+
+  PUBLISH:
+    always:
+      - guard: { type: command, params: { run: 'git tag -a "v$SMLLM_REF" -m "Release $SMLLM_REF" && git push origin "v$SMLLM_REF"' } }
+        target: DONE
+      - target: STUCK
+        actions: { type: prompt, params: { text: "The tag or its push failed." } }
+
+  DONE:
+    type: final
+    entry: { type: prompt, params: { text: "Tell the user the tag is on origin." } }

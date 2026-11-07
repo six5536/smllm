@@ -5,6 +5,8 @@
 
 mod audit;
 mod instances;
+#[cfg(test)]
+mod races;
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -292,7 +294,7 @@ mod tests {
     use smllm_core::SmallMap;
     use smllm_core::record::Status;
 
-    fn inst(v: u64) -> Instance {
+    pub(super) fn inst(v: u64) -> Instance {
         Instance {
             id: "i-1".into(),
             machine: "dev".into(),
@@ -559,220 +561,6 @@ mod tests {
                 .flatten()
                 .all(|e| e.file_name().len() <= 125)
         );
-        fs::remove_dir_all(d).ok();
-    }
-
-    /// Write with `write` in one thread while this one reads `path` as often
-    /// as it can, and give each content the reader sees to `check`.
-    #[cfg(unix)]
-    fn race(path: &Path, write: impl FnOnce() + Send, check: impl Fn(&str)) {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let done = AtomicBool::new(false);
-        let mut seen = 0;
-        std::thread::scope(|s| {
-            s.spawn(|| {
-                write();
-                done.store(true, Ordering::SeqCst);
-            });
-            // One more look after the writer stops, so a writer that finishes
-            // before the first look still leaves something to check.
-            loop {
-                let finished = done.load(Ordering::SeqCst);
-                let paths: Vec<PathBuf> = if path.is_dir() {
-                    fs::read_dir(path)
-                        .unwrap()
-                        .flatten()
-                        .map(|e| e.path())
-                        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-                        .collect()
-                } else {
-                    vec![path.to_path_buf()]
-                };
-                for p in paths {
-                    if let Ok(text) = fs::read_to_string(&p) {
-                        check(&text);
-                        seen += 1;
-                    }
-                }
-                if finished {
-                    break;
-                }
-            }
-        });
-        assert!(seen > 0, "{}: the reader saw no write", path.display());
-    }
-
-    // A reader that opens a file while the store replaces it, again and
-    // again, sees the whole of one content, never a part: what a write that
-    // stops at any point leaves behind. Representative cases, each kind of
-    // file some fifty times with contents of very different sizes (the
-    // crate has no proptest); Unix only, where a reader does not block the
-    // rename.
-    // sokf-tests: STORE_P-1
-    #[cfg(unix)]
-    #[test]
-    fn readers_see_whole_files_while_the_store_writes() {
-        let d = crate::test_support::temp_dir("whole");
-        let store = || {
-            FsStore::new(
-                d.join("user"),
-                [("dev".to_string(), d.join("proj/state"))].into(),
-            )
-        };
-        // Sessions.
-        let small = Session {
-            key: "sm-1".into(),
-            ..Default::default()
-        };
-        let big = Session {
-            configs: vec!["x".repeat(4096); 64],
-            ..small.clone()
-        };
-        let texts = [&small, &big].map(|s| serde_json::to_string_pretty(s).unwrap());
-        let mut st = store();
-        st.put_session(&small).unwrap();
-        race(
-            &d.join("user/sessions/sm-1.json"),
-            || {
-                for n in 0..50 {
-                    st.put_session(if n % 2 == 0 { &big } else { &small })
-                        .unwrap();
-                }
-            },
-            |t| {
-                assert!(
-                    texts.iter().any(|x| x == t),
-                    "part of a session: {}",
-                    t.len()
-                )
-            },
-        );
-        // Bindings.
-        let keys = ["sm-a".to_string(), format!("sm-{}", "b".repeat(100_000))];
-        let mut st = store();
-        st.put_binding("claude", "cc-1", &keys[0]).unwrap();
-        race(
-            &d.join("user/bindings/claude/cc-1"),
-            || {
-                for n in 0..50 {
-                    st.put_binding("claude", "cc-1", &keys[n % 2]).unwrap();
-                }
-            },
-            |t| {
-                assert!(
-                    keys.iter().any(|k| k == t),
-                    "part of a binding: {}",
-                    t.len()
-                )
-            },
-        );
-        // Instances.
-        let mut st = store();
-        st.put_instance(&inst(1)).unwrap();
-        race(
-            &d.join("proj/state/dev/active/i-1.json"),
-            || {
-                for v in 2..52 {
-                    let mut i = inst(v);
-                    i.state = if v % 2 == 0 {
-                        "B".repeat(100_000)
-                    } else {
-                        "A".into()
-                    };
-                    st.put_instance(&i).unwrap();
-                }
-            },
-            |t| {
-                assert!(
-                    serde_json::from_str::<Instance>(t).is_ok(),
-                    "part of an instance"
-                )
-            },
-        );
-        // Ref markers: refs that differ only in case share one marker file,
-        // which each new instance rewrites with one more entry.
-        let mut st = store();
-        let mut first = inst(1);
-        first.id = "r-0".into();
-        first.r#ref = Some("abcdefg".into());
-        st.put_instance(&first).unwrap();
-        race(
-            &d.join("proj/state/dev/refs"),
-            || {
-                for n in 1..32_u32 {
-                    let r: String = "abcdefg"
-                        .chars()
-                        .enumerate()
-                        .map(|(b, c)| {
-                            if n >> b & 1 == 1 {
-                                c.to_ascii_uppercase()
-                            } else {
-                                c
-                            }
-                        })
-                        .collect();
-                    let mut i = inst(1);
-                    i.id = format!("r-{n}");
-                    i.r#ref = Some(r);
-                    st.put_instance(&i).unwrap();
-                }
-            },
-            |t| {
-                serde_json::from_str::<std::collections::BTreeMap<String, String>>(t)
-                    .expect("part of a ref marker");
-            },
-        );
-        fs::remove_dir_all(d).ok();
-    }
-
-    // Two writers, two stores over one folder as two processes would be,
-    // load the same instance and race to save its next version: each
-    // version is accepted exactly once, and every other write is a conflict.
-    // Then a version below, at, or past the next one is refused.
-    // sokf-tests: STORE_P-2
-    #[test]
-    fn racing_writers_save_each_version_once() {
-        let d = crate::test_support::temp_dir("race");
-        let store = || {
-            FsStore::new(
-                d.join("user"),
-                [("dev".to_string(), d.join("proj/state"))].into(),
-            )
-        };
-        store().put_instance(&inst(1)).unwrap();
-        let mut accepted: Vec<u64> = std::thread::scope(|s| {
-            let writers: Vec<_> = (0..2)
-                .map(|w| {
-                    s.spawn(move || {
-                        let mut st = store();
-                        let mut mine = Vec::new();
-                        for _ in 0..100 {
-                            let mut i = st.instance("dev", "i-1").unwrap().unwrap();
-                            i.version += 1;
-                            i.state = format!("W{w}");
-                            match st.put_instance(&i) {
-                                Ok(()) => mine.push(i.version),
-                                Err(HostError::Conflict) => {}
-                                Err(e) => panic!("{e:?}"),
-                            }
-                        }
-                        mine
-                    })
-                })
-                .collect();
-            writers
-                .into_iter()
-                .flat_map(|h| h.join().unwrap())
-                .collect()
-        });
-        accepted.sort_unstable();
-        let last = store().instance("dev", "i-1").unwrap().unwrap().version;
-        assert_eq!(accepted, (2..=last).collect::<Vec<_>>());
-        let mut st = store();
-        for v in [0, 1, last - 1, last, last + 2, u64::MAX] {
-            assert_eq!(st.put_instance(&inst(v)), Err(HostError::Conflict), "{v}");
-        }
-        st.put_instance(&inst(last + 1)).unwrap();
         fs::remove_dir_all(d).ok();
     }
 }

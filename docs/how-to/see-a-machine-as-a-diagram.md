@@ -88,7 +88,7 @@ states:
    smllm graph fix --open
    ```
 
-   The page shows the diagram. Select a state or a transition to read its prompts, commands, guards, and events. smllm opens the page with the default browser, or with the program that the variable `BROWSER` names.
+   The page shows the diagram. Select a state or a transition to read its prompts, commands, guards, and events. A note beside the diagram lists the events that every state but a final one offers, `yield`, `pause`, and `unmatched`, and the `resume` of the fallback state. Select the note to read their guidance. smllm opens the page with the default browser, or with the program that the variable `BROWSER` names.
 
 4. To share the interactive diagram, write it to an HTML page, which needs only a browser:
 

@@ -380,7 +380,7 @@ mod tests {
 
     // sokf-tests: DOC_P-1
     proptest::proptest! {
-        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(512))]
+        #![proptest_config(crate::test_support::cases(512))]
         #[test]
         fn the_draws_of_one_run_never_repeat(start: u64, a in 0..u64::MAX / 2, b in 0..u64::MAX / 2) {
             proptest::prop_assume!(a != b);
